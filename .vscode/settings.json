@@ -1,0 +1,9 @@
+{
+    "Lua.workspace.library": [
+        "../../LLS/cuberite/library"
+    ],
+    "Lua.runtime.version": "Lua 5.1",
+    "Lua.diagnostics.disable": [
+        "inject-field"
+    ],
+}
