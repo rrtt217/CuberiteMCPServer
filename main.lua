@@ -15,7 +15,8 @@
 -- See plan in the project root for details.
 
 local g_ServerHandle = nil  -- cServerHandle, kept alive to keep listening
-local g_PluginFolder = nil
+g_PluginFolder = nil        -- set in Initialize, used by tools.lua
+local g_MCCPid = nil        -- PID of the MCC child process, or nil if not running
 
 ----------------------------------------------------------------------
 -- Per-connection state and callbacks
@@ -118,6 +119,116 @@ local function StopMCPServer()
 end
 
 ----------------------------------------------------------------------
+-- MCC (Minecraft Console Client) lifecycle
+----------------------------------------------------------------------
+
+-- Build the MCC command line from config. Returns a string ready for os.execute.
+local function BuildMCCCommand()
+	local cfg = g_MCPConfig.MCC
+	local path = cfg.Path
+	if path == "" then
+		return nil, "MCC.Path is not configured"
+	end
+	-- Build a temporary ini file with the right settings so we don't
+	-- clobber the user's main MinecraftClient.ini.
+	local tmpIni = g_PluginFolder .. "/mcc_temp.ini"
+	local f = io.open(tmpIni, "w")
+	if not f then
+		return nil, "Cannot write " .. tmpIni
+	end
+	f:write("[Main]\n")
+	f:write("[Main.General]\n")
+	f:write("Account = { Login = \"" .. cfg.Username .. "\", Password = \"-\" }\n")
+	f:write("Server = { Host = \"" .. cfg.ServerHost .. "\", Port = " .. cfg.ServerPort .. " }\n")
+	f:write("AccountType = \"mojang\"\n")
+	f:write("[Main.Advanced]\n")
+	f:write("MinecraftVersion = \"" .. cfg.MinecraftVersion .. "\"\n")
+	f:write("BotOwners = [ \"" .. cfg.Username .. "\", ]\n")
+	f:write("[ChatBot.RemoteControl]\n")
+	f:write("Enabled = true\n")
+	f:write("AutoTpaccept = true\n")
+	f:write("AutoTpaccept_Everyone = true\n")
+	f:write("[ChatBot.McpServer]\n")
+	f:write("Enabled = true\n")
+	f:write("[ChatBot.McpServer.Transport]\n")
+	f:write("BindHost = \"127.0.0.1\"\n")
+	f:write("Port = " .. cfg.McpPort .. "\n")
+	f:write("Route = \"/mcp\"\n")
+	f:write("RequireAuthToken = false\n")
+	f:write("[ChatBot.McpServer.Capabilities]\n")
+	f:write("SessionStatus = true\n")
+	f:write("ChatAndCommands = true\n")
+	f:write("Movement = true\n")
+	f:write("Inventory = true\n")
+	f:write("EntityWorld = true\n")
+	f:close()
+	-- Quote the path in case it contains spaces.
+	return '"' .. path .. '" "' .. tmpIni .. '"'
+end
+
+local function StartMCC()
+	if g_MCCPid then
+		LOG("[MCP] MCC already running (PID " .. g_MCCPid .. ")")
+		return false, "already running"
+	end
+	local cfg = g_MCPConfig.MCC
+	if not cfg.Enabled then
+		LOG("[MCP] MCC integration is disabled in config")
+		return false, "MCC disabled in config"
+	end
+	local cmd, err = BuildMCCCommand()
+	if not cmd then
+		LOGWARNING("[MCP] Cannot start MCC: " .. err)
+		return false, err
+	end
+	-- Use io.popen to launch MCC in the background. We redirect stdout/stderr
+	-- to a log file so it doesn't clutter the Cuberite console.
+	local logFile = g_PluginFolder .. "/mcc_output.log"
+	-- Run in background with &, capture PID via $!
+	local fullCmd = cmd .. ' > "' .. logFile .. '" 2>&1 & echo $!'
+	LOG("[MCP] Starting MCC: " .. cmd)
+	local f = io.popen(fullCmd)
+	if not f then
+		LOGWARNING("[MCP] io.popen failed for MCC")
+		return false, "io.popen failed"
+	end
+	local pidStr = f:read("*a")
+	f:close()
+	pidStr = pidStr:match("^(%d+)")
+	if not pidStr then
+		LOGWARNING("[MCP] Could not read MCC PID")
+		return false, "could not read PID"
+	end
+	g_MCCPid = tonumber(pidStr)
+	LOG("[MCP] MCC started with PID " .. g_MCCPid .. ", output -> " .. logFile)
+	return true, "MCC started (PID " .. g_MCCPid .. ")"
+end
+
+local function StopMCC()
+	if not g_MCCPid then
+		return false, "MCC not running"
+	end
+	-- Send SIGTERM to the MCC process.
+	os.execute("kill " .. g_MCCPid .. " 2>/dev/null")
+	LOG("[MCP] Sent SIGTERM to MCC PID " .. g_MCCPid)
+	g_MCCPid = nil
+	return true, "MCC stopped"
+end
+
+-- Return MCC status info for tools.
+function GetMCCStatus()
+	local cfg = g_MCPConfig.MCC
+	local status = {
+		enabled  = cfg.Enabled,
+		running  = g_MCCPid ~= nil,
+		pid      = g_MCCPid,
+		username = cfg.Username,
+		mcp_port = cfg.McpPort,
+	}
+	return status
+end
+
+----------------------------------------------------------------------
 -- Console commands
 ----------------------------------------------------------------------
 
@@ -162,11 +273,20 @@ function Initialize(a_Plugin)
 	-- Autostart the server.
 	StartMCPServer()
 
+	-- Autostart MCC if enabled, but delay it so the server port is ready.
+	if g_MCPConfig.MCC.Enabled then
+		cRoot:Get():GetDefaultWorld():ScheduleTask(60, function()
+			StartMCC()
+		end)
+		LOG("[MCP] MCC scheduled to start in 60 ticks (~3s)")
+	end
+
 	LOG("[MCP] MCPServer plugin initialized (port " .. g_MCPConfig.Port .. ")")
 	return true
 end
 
 function OnDisable()
+	StopMCC()
 	StopMCPServer()
 	LOG("[MCP] MCPServer plugin disabled")
 end

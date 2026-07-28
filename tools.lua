@@ -367,6 +367,182 @@ local g_Tools = {
 			return textOK(toJsonString(result))
 		end,
 	},
+
+	----------------------------------------------------------------------
+	-- MCC (Minecraft Console Client) management tools
+	----------------------------------------------------------------------
+	{
+		name = "mcc_status",
+		description = "Return the status of the MCC (Minecraft Console Client) bot managed by this plugin. Shows whether MCC is enabled, running, its PID, username, and MCP port.",
+		inputSchema = { type = "object", properties = {}, required = {} },
+		handler = function(a_World, a_Args)
+			local status = GetMCCStatus()
+			return textOK(toJsonString(status))
+		end,
+	},
+
+	----------------------------------------------------------------------
+	-- World manipulation tools
+	----------------------------------------------------------------------
+	{
+		name = "set_time",
+		description = "Set the time of day in the default world. time can be a number (0-23999 ticks), or a named value: 'day' (1000), 'noon' (6000), 'sunset' (12000), 'night' (13000), 'midnight' (18000).",
+		inputSchema = {
+			type = "object",
+			properties = {
+				time = { type = "string", description = "Time value: a number (0-23999) or named value (day/noon/sunset/night/midnight)" },
+			},
+			required = { "time" },
+		},
+		handler = function(a_World, a_Args)
+			local timeNames = { day = 1000, noon = 6000, sunset = 12000, night = 13000, midnight = 18000 }
+			local t = a_Args.time
+			if not t then return textErr("time is required") end
+			local ticks = tonumber(t) or timeNames[t:lower()]
+			if not ticks then
+				return textErr("Invalid time '" .. t .. "'. Use a number (0-23999) or day/noon/sunset/night/midnight.")
+			end
+			a_World:SetTimeOfDay(ticks)
+			return textOK("Set time to " .. ticks .. " ticks")
+		end,
+	},
+
+	{
+		name = "set_weather",
+		description = "Set the weather in the default world. weather must be one of: sunny, rain, storm.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				weather = { type = "string", enum = { "sunny", "rain", "storm" } },
+			},
+			required = { "weather" },
+		},
+		handler = function(a_World, a_Args)
+			local wmap = { sunny = wSunny, rain = wRain, storm = wStorm }
+			local w = wmap[a_Args.weather]
+			if not w then return textErr("weather must be sunny, rain, or storm") end
+			a_World:SetWeather(w)
+			return textOK("Set weather to " .. a_Args.weather)
+		end,
+	},
+
+	{
+		name = "set_block",
+		description = "Set a block at the given coordinates in the default world. blockType is the numeric block ID (e.g. 1=stone, 2=grass, 3=dirt, 5=planks, 20=glass, 57=diamond_block). blockMeta is optional (default 0).",
+		inputSchema = {
+			type = "object",
+			properties = {
+				x = { type = "integer" },
+				y = { type = "integer" },
+				z = { type = "integer" },
+				blockType = { type = "integer", description = "Numeric block type ID" },
+				blockMeta = { type = "integer", description = "Block metadata (optional, default 0)" },
+			},
+			required = { "x", "y", "z", "blockType" },
+		},
+		handler = function(a_World, a_Args)
+			local x, y, z = tonumber(a_Args.x), tonumber(a_Args.y), tonumber(a_Args.z)
+			local bt = tonumber(a_Args.blockType)
+			local bm = tonumber(a_Args.blockMeta) or 0
+			if not x or not y or not z or not bt then
+				return textErr("x, y, z, blockType must be integers")
+			end
+			a_World:SetBlock(x, y, z, bt, bm)
+			return textOK("Set block at (" .. x .. "," .. y .. "," .. z .. ") to type=" .. bt .. " meta=" .. bm)
+		end,
+	},
+
+	----------------------------------------------------------------------
+	-- Plugin development tools
+	----------------------------------------------------------------------
+	{
+		name = "list_plugins",
+		description = "List all Cuberite plugins with their load status (loaded/disabled/error).",
+		inputSchema = { type = "object", properties = {}, required = {} },
+		handler = function(a_World, a_Args)
+			local pm = cPluginManager
+			local plugins = {}
+			pm:ForEachPlugin(function(a_Plugin)
+				local name = a_Plugin:GetName()
+				local folder = a_Plugin:GetLocalFolder()
+				local status = "loaded"
+				-- Cuberite doesn't expose a direct "is loaded" check, but
+				-- ForEachPlugin only iterates loaded plugins.
+				plugins[#plugins + 1] = { name = name, folder = folder, status = status }
+				return false
+			end)
+			return textOK(toJsonString({ count = #plugins, plugins = plugins }))
+		end,
+	},
+
+	{
+		name = "reload_plugin",
+		description = "Reload a specific Cuberite plugin by name. Returns the console output from the reload command. Note: reloading MCPServer itself will disconnect the MCP client.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				name = { type = "string", description = "Plugin name to reload (e.g. 'Core', 'MCPServer')" },
+			},
+			required = { "name" },
+		},
+		handler = function(a_World, a_Args)
+			local name = a_Args.name
+			if not name or name == "" then return textErr("name is required") end
+			local ok, output = cPluginManager:ExecuteConsoleCommand("plugins reload " .. name)
+			return textOK(toJsonString({ plugin = name, success = ok == true, output = output or "" }))
+		end,
+	},
+
+	{
+		name = "execute_lua",
+		description = "Execute a Lua expression or statement on the Cuberite server. The code runs in the server's Lua context with access to all Cuberite APIs. Returns the captured output (print/LOG calls). Use with caution.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				code = { type = "string", description = "Lua code to execute. Use print() or LOG() for output." },
+			},
+			required = { "code" },
+		},
+		handler = function(a_World, a_Args)
+			local code = a_Args.code
+			if not code or code == "" then return textErr("code is required") end
+			-- Execute via the 'lua' console command which runs in the server's Lua state.
+			local ok, output = cPluginManager:ExecuteConsoleCommand("lua " .. code)
+			return textOK(toJsonString({ success = ok == true, output = output or "" }))
+		end,
+	},
+
+	{
+		name = "read_server_log",
+		description = "Read the last N lines from the Cuberite server log file. Useful for debugging plugin issues.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				lines = { type = "integer", description = "Number of recent log lines to return (default: 50, max: 500)" },
+			},
+			required = {},
+		},
+		handler = function(a_World, a_Args)
+			local n = tonumber(a_Args.lines) or 50
+			if n < 1 then n = 1 end
+			if n > 500 then n = 500 end
+			-- Find the most recent log file.
+			local logDir = cRoot:Get():GetServer():GetDescription() -- not useful, use filesystem
+			-- Use io.popen to find and read the latest log.
+			local f = io.popen('ls -t "' .. g_PluginFolder .. '/../logs/LOG_*.txt" 2>/dev/null | head -1')
+			if not f then return textErr("Cannot list log files") end
+			local latest = f:read("*l")
+			f:close()
+			if not latest or latest == "" then
+				return textErr("No log files found")
+			end
+			f = io.popen('tail -n ' .. n .. ' "' .. latest .. '"')
+			if not f then return textErr("Cannot read log file") end
+			local content = f:read("*a")
+			f:close()
+			return textOK(content or "(empty)")
+		end,
+	},
 }
 
 ----------------------------------------------------------------------
