@@ -380,6 +380,53 @@ local g_Tools = {
 			return textOK(toJsonString(status))
 		end,
 	},
+	{
+		name = "mcc_start",
+		description = "Start (summon) the MCC (Minecraft Console Client) bot managed by this plugin. Launches MCC as a background child process using the configured settings. Does nothing if MCC is already running. Pass random_name='force' to always randomize the bot username suffix, or 'fixed' to use the base username, overriding the RandomUsername config for this launch.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				random_name = { type = "string", enum = { "force", "fixed" }, description = "Override username randomization for this launch: 'force' always appends a random suffix, 'fixed' uses the base username. Omit to honor the RandomUsername config." },
+			},
+			required = {},
+		},
+		handler = function(a_World, a_Args)
+			local opts = {}
+			if a_Args.random_name == "force" or a_Args.random_name == "fixed" then
+				opts.random_name = a_Args.random_name
+			end
+			local ok, msg = StartMCC(opts)
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
+	{
+		name = "mcc_stop",
+		description = "Stop (terminate) the running MCC (Minecraft Console Client) bot managed by this plugin. Sends SIGTERM to the MCC process and clears its tracked PID. Does nothing if MCC is not running.",
+		inputSchema = { type = "object", properties = {}, required = {} },
+		handler = function(a_World, a_Args)
+			local ok, msg = StopMCC()
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
+	{
+		name = "mcc_restart",
+		description = "Restart the MCC (Minecraft Console Client) bot managed by this plugin. Stops the running bot (if any) and starts a fresh one. Useful after changing MCC configuration. Pass random_name='force' to always randomize the bot username suffix, or 'fixed' to use the base username, overriding the RandomUsername config for the new launch.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				random_name = { type = "string", enum = { "force", "fixed" }, description = "Override username randomization for the new launch: 'force' always appends a random suffix, 'fixed' uses the base username. Omit to honor the RandomUsername config." },
+			},
+			required = {},
+		},
+		handler = function(a_World, a_Args)
+			local opts = {}
+			if a_Args.random_name == "force" or a_Args.random_name == "fixed" then
+				opts.random_name = a_Args.random_name
+			end
+			local ok, msg = RestartMCC(opts)
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
 
 	----------------------------------------------------------------------
 	-- World manipulation tools
@@ -506,9 +553,44 @@ local g_Tools = {
 		handler = function(a_World, a_Args)
 			local code = a_Args.code
 			if not code or code == "" then return textErr("code is required") end
-			-- Execute via the 'lua' console command which runs in the server's Lua state.
-			local ok, output = cPluginManager:ExecuteConsoleCommand("lua " .. code)
-			return textOK(toJsonString({ success = ok == true, output = output or "" }))
+			-- Execute Lua code directly via loadstring() instead of the 'lua'
+			-- console command (which may not be available if the Core plugin
+			-- is not loaded). Capture print() output by temporarily replacing
+			-- the global print function.
+			local output = {}
+			local oldPrint = print
+			print = function(...)
+				local parts = {}
+				for i = 1, select("#", ...) do
+					local v = select(i, ...)
+					parts[i] = tostring(v)
+				end
+				output[#output + 1] = table.concat(parts, "\t")
+				if oldPrint then oldPrint(...) end
+			end
+			local ok, err = pcall(function()
+				local fn, loadErr = loadstring(code)
+				if not fn then
+					error(loadErr)
+				end
+				local results = { fn() }
+				if #results > 0 then
+					local parts = {}
+					for i, v in ipairs(results) do
+						parts[i] = tostring(v)
+					end
+					output[#output + 1] = table.concat(parts, "\t")
+				end
+			end)
+			print = oldPrint
+			local result = {
+				success = ok,
+				output = table.concat(output, "\n"),
+			}
+			if not ok then
+				result.error = tostring(err)
+			end
+			return textOK(toJsonString(result))
 		end,
 	},
 

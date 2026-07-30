@@ -50,4 +50,46 @@ g_PluginInfo =
 			},
 		},
 	},
+	mcc =
+	{
+		Subcommands =
+		{
+			start =
+			{
+				HelpString = "Start the MCC (Minecraft Console Client) bot",
+				Handler = HandleConsoleMCC,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Launches the MCC bot as a background child process using the configured settings." },
+				},
+			},
+			stop =
+			{
+				HelpString = "Stop the running MCC bot",
+				Handler = HandleConsoleMCC,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Sends SIGTERM to the MCC process and clears its tracked PID." },
+				},
+			},
+			restart =
+			{
+				HelpString = "Restart the MCC bot",
+				Handler = HandleConsoleMCC,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Stops the running MCC bot (if any) and starts a fresh one." },
+				},
+			},
+			status =
+			{
+				HelpString = "Report MCC bot status",
+				Handler = HandleConsoleMCC,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Prints whether the MCC bot is enabled/running, its PID, username, and MCP port." },
+				},
+			},
+		},
+	},
 }

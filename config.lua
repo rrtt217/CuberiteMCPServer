@@ -13,9 +13,11 @@ local g_Defaults = {
 	-- MCC (Minecraft Console Client) integration.
 	MCC = {
 		Enabled = false,
+		AutoStart = true,  -- when Enabled, launch MCC automatically on plugin init
 		Path = "",
 		WorkDir = "",
 		Username = "TestBot",
+		RandomUsername = false,
 		ServerHost = "127.0.0.1",
 		ServerPort = 25568,
 		MinecraftVersion = "1.12.2",
@@ -39,9 +41,11 @@ function LoadMCPConfig(a_PluginFolder)
 	end
 	if isNew or ini:GetValue("MCC", "Enabled", "") == "" then
 		ini:SetValue("MCC", "Enabled", g_Defaults.MCC.Enabled and "true" or "false")
+		ini:SetValue("MCC", "AutoStart", g_Defaults.MCC.AutoStart and "true" or "false")
 		ini:SetValue("MCC", "Path", g_Defaults.MCC.Path)
 		ini:SetValue("MCC", "WorkDir", g_Defaults.MCC.WorkDir)
 		ini:SetValue("MCC", "Username", g_Defaults.MCC.Username)
+		ini:SetValue("MCC", "RandomUsername", g_Defaults.MCC.RandomUsername and "true" or "false")
 		ini:SetValue("MCC", "ServerHost", g_Defaults.MCC.ServerHost)
 		ini:SetValue("MCC", "ServerPort", tostring(g_Defaults.MCC.ServerPort))
 		ini:SetValue("MCC", "MinecraftVersion", g_Defaults.MCC.MinecraftVersion)
@@ -67,9 +71,11 @@ function LoadMCPConfig(a_PluginFolder)
 	-- MCC configuration.
 	g_MCPConfig.MCC = {}
 	g_MCPConfig.MCC.Enabled = ini:GetValue("MCC", "Enabled", "false"):lower() == "true"
+	g_MCPConfig.MCC.AutoStart = ini:GetValue("MCC", "AutoStart", "true"):lower() == "true"
 	g_MCPConfig.MCC.Path = ini:GetValue("MCC", "Path", g_Defaults.MCC.Path)
 	g_MCPConfig.MCC.WorkDir = ini:GetValue("MCC", "WorkDir", g_Defaults.MCC.WorkDir)
 	g_MCPConfig.MCC.Username = ini:GetValue("MCC", "Username", g_Defaults.MCC.Username)
+	g_MCPConfig.MCC.RandomUsername = ini:GetValue("MCC", "RandomUsername", "false"):lower() == "true"
 	g_MCPConfig.MCC.ServerHost = ini:GetValue("MCC", "ServerHost", g_Defaults.MCC.ServerHost)
 	g_MCPConfig.MCC.ServerPort = tonumber(ini:GetValue("MCC", "ServerPort", tostring(g_Defaults.MCC.ServerPort))) or g_Defaults.MCC.ServerPort
 	g_MCPConfig.MCC.MinecraftVersion = ini:GetValue("MCC", "MinecraftVersion", g_Defaults.MCC.MinecraftVersion)

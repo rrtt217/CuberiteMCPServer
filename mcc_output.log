@@ -14,5 +14,8 @@ Minecraft 命令行客户端 v26.2 - 适用于 MC 1.4.6 至 26.2 - Github.com/MC
 [0m[33mType /help for all commands[0m
 [37m[MCC] [McpServer] 正在启动嵌入式 MCP 服务器……[0m
 [37m[MCC] [McpServer] 嵌入式 MCP 服务器已在 http://127.0.0.1:33333/mcp 上启动[0m
-[0m[37m[DEATH] [97mTestBot was killed by a Spider[0m
-[37m[MCC] 你死了！输入 '/respawn' 重生。[0m
+[37m[MCC] 失去连接。[0m
+[37m[MCC] [McpServer] 嵌入式 MCP 服务器已停止。[0m
+
+未连接至任何服务器。输入 '/help' 获得帮助。
+或者敲击回车退出Minecraft Console Client。
