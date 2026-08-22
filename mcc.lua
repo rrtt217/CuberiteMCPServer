@@ -18,6 +18,63 @@
 local g_MCCPid = nil  -- PID of the MCC child process, or nil if not running
 
 ----------------------------------------------------------------------
+-- Process helpers
+----------------------------------------------------------------------
+
+-- Whether the given PID is alive (kill -0). Handles both Lua 5.1
+-- (numeric exit code) and 5.2+ (boolean) os.execute return values.
+-- @param a_Pid number
+-- @return boolean
+local function IsPidAlive(a_Pid)
+	if not a_Pid then
+		return false
+	end
+	local ok = os.execute("kill -0 " .. a_Pid .. " 2>/dev/null")
+	return (ok == 0) or (ok == true)
+end
+
+-- Whether the given PID is alive AND still the MCC process we launched.
+-- The cmdline check guards against killing an unrelated process after a
+-- PID got reused.
+-- @param a_Pid number
+-- @return boolean
+local function IsMCCProcess(a_Pid)
+	if not IsPidAlive(a_Pid) then
+		return false
+	end
+	local f = io.popen("tr '\\0' ' ' < /proc/" .. a_Pid .. "/cmdline 2>/dev/null")
+	local cmdline = ""
+	if f then
+		cmdline = f:read("*a") or ""
+		f:close()
+	end
+	-- If the cmdline cannot be read (e.g. no /proc), fall back to liveness.
+	if cmdline == "" then
+		return true
+	end
+	local cfg = g_MCPConfig.MCC
+	return (cfg.Path ~= "") and (cmdline:find(cfg.Path, 1, true) ~= nil)
+end
+
+-- Busy-wait until the process is gone, up to a_Seconds seconds, sleeping
+-- a_Sleep seconds between polls. Blocks the calling thread (world tick),
+-- so keep the budgets small. Returns true if the process exited.
+-- @param a_Pid number
+-- @param a_Seconds number
+-- @param a_Sleep number
+-- @return boolean
+local function WaitForExit(a_Pid, a_Seconds, a_Sleep)
+	local deadline = (a_Seconds / a_Sleep) + 0.5
+	for _ = 1, math.floor(deadline) do
+		if not IsPidAlive(a_Pid) then
+			return true
+		end
+		os.execute("sleep " .. tostring(a_Sleep))
+	end
+	return not IsPidAlive(a_Pid)
+end
+
+----------------------------------------------------------------------
 -- Command construction
 ----------------------------------------------------------------------
 
@@ -103,6 +160,20 @@ end
 -- Launch the MCC bot as a background child process.
 -- a_Opts is optional; see BuildMCCCommand for the recognized fields.
 function StartMCC(a_Opts)
+	a_Opts = a_Opts or {}
+	-- A "force" launch is an explicit request for a fresh player: terminate
+	-- the existing bot first instead of refusing (the old MCC keeps its
+	-- server session alive otherwise).
+	if g_MCCPid and a_Opts.random_name == "force" then
+		LOG("[MCP] Force launch requested, stopping existing MCC (PID " .. g_MCCPid .. ")")
+		StopMCC()
+	end
+	-- Reap a stale tracked PID: the bot may have exited on its own while
+	-- we still remembered it.
+	if g_MCCPid and not IsMCCProcess(g_MCCPid) then
+		LOGWARNING("[MCP] Stale PID " .. g_MCCPid .. " is no longer running, clearing it")
+		g_MCCPid = nil
+	end
 	if g_MCCPid then
 		LOG("[MCP] MCC already running (PID " .. g_MCCPid .. ")")
 		return false, "already running"
@@ -120,8 +191,14 @@ function StartMCC(a_Opts)
 	-- Use io.popen to launch MCC in the background. We redirect stdout/stderr
 	-- to a log file so it doesn't clutter the Cuberite console.
 	local logFile = g_PluginFolder .. "/mcc_output.log"
-	-- Run in background with &, capture PID via $!
-	local fullCmd = cmd .. ' > "' .. logFile .. '" 2>&1 & echo $!'
+	-- The launch wrapper closes every inherited file descriptor above 2
+	-- before exec'ing MCC. Without this the child inherits Cuberite's
+	-- listening sockets (game / webadmin / MCP ports); if Cuberite dies
+	-- while MCC keeps running, the orphaned MCC holds those ports and
+	-- Cuberite cannot restart ("address already in use").
+	-- Run in background with &, capture PID via $! (the subshell PID is
+	-- preserved through exec, so it is the MCC PID).
+	local fullCmd = '{ for fd in /proc/self/fd/*; do n=${fd##*/}; case "$n" in 0|1|2) ;; *) eval "exec $n>&-" 2>/dev/null ;; esac; done; exec ' .. cmd .. ' > "' .. logFile .. '" 2>&1; } & echo $!'
 	LOG("[MCP] Starting MCC: " .. cmd)
 	local f = io.popen(fullCmd)
 	if not f then
@@ -140,15 +217,49 @@ function StartMCC(a_Opts)
 	return true, "MCC started (PID " .. g_MCCPid .. ")"
 end
 
--- Terminate the running MCC bot via SIGTERM.
+-- Signal ladder used by StopMCC: catchable signals first, SIGKILL last.
+-- MCC ignores SIGTERM/SIGINT/SIGQUIT (its runtime installs handlers that do
+-- nothing) and dies ungracefully on SIGHUP/SIGUSR1, so no single signal
+-- yields a clean shutdown; this ladder gives every catchable signal a chance
+-- and only escalates to SIGKILL once the process refused all of them.
+-- Each entry: { name, kill invocation, wait seconds }.
+local g_StopLadder = {
+	{ "SIGTERM", "kill %d",       1.5 },
+	{ "SIGHUP",  "kill -HUP %d",  1.5 },
+	{ "SIGUSR1", "kill -USR1 %d", 1.0 },
+	{ "SIGKILL", "kill -9 %d",    1.0 },
+}
+
+-- Terminate the running MCC bot: walk the signal ladder (SIGTERM -> SIGHUP
+-- -> SIGUSR1 -> SIGKILL), waiting between steps, and only drop the tracked
+-- PID once the process is confirmed gone.
 function StopMCC()
 	if not g_MCCPid then
 		return false, "MCC not running"
 	end
-	-- Send SIGTERM to the MCC process.
-	os.execute("kill " .. g_MCCPid .. " 2>/dev/null")
-	LOG("[MCP] Sent SIGTERM to MCC PID " .. g_MCCPid)
+	local pid = g_MCCPid
+	LOG("[MCP] Stopping MCC (PID " .. pid .. ")")
+	if IsMCCProcess(pid) then
+		local exited = false
+		for i, step in ipairs(g_StopLadder) do
+			os.execute(string.format(step[2], pid) .. " 2>/dev/null")
+			if WaitForExit(pid, step[3], 0.1) then
+				exited = true
+				break
+			end
+			if i < #g_StopLadder then
+				LOGWARNING("[MCP] MCC PID " .. pid .. " ignored " .. step[1] .. ", escalating to " .. g_StopLadder[i + 1][1])
+			else
+				-- Defunct zombies can linger; they cannot hold ports or
+				-- connect, so continue with the PID cleared.
+				LOGWARNING("[MCP] MCC PID " .. pid .. " still present after SIGKILL (zombie?); continuing")
+			end
+		end
+	else
+		LOGWARNING("[MCP] MCC PID " .. pid .. " was not running anymore")
+	end
 	g_MCCPid = nil
+	LOG("[MCP] MCC stopped")
 	return true, "MCC stopped"
 end
 
@@ -164,6 +275,10 @@ end
 -- Return MCC status info for tools and console commands.
 function GetMCCStatus()
 	local cfg = g_MCPConfig.MCC
+	-- Reap stale PIDs so status reports stay truthful.
+	if g_MCCPid and not IsMCCProcess(g_MCCPid) then
+		g_MCCPid = nil
+	end
 	local status = {
 		enabled         = cfg.Enabled,
 		autostart       = cfg.AutoStart,

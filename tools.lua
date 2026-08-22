@@ -382,7 +382,7 @@ local g_Tools = {
 	},
 	{
 		name = "mcc_start",
-		description = "Start (summon) the MCC (Minecraft Console Client) bot managed by this plugin. Launches MCC as a background child process using the configured settings. Does nothing if MCC is already running. Pass random_name='force' to always randomize the bot username suffix, or 'fixed' to use the base username, overriding the RandomUsername config for this launch.",
+		description = "Start (summon) the MCC (Minecraft Console Client) bot managed by this plugin. Launches MCC as a background child process using the configured settings. Pass random_name='force' to always randomize the bot username suffix — this also terminates any running MCC first so a fresh player is summoned. Pass random_name='fixed' to use the base username. With no random_name, the RandomUsername config is honored and the call does nothing if MCC is already running.",
 		inputSchema = {
 			type = "object",
 			properties = {
@@ -401,7 +401,7 @@ local g_Tools = {
 	},
 	{
 		name = "mcc_stop",
-		description = "Stop (terminate) the running MCC (Minecraft Console Client) bot managed by this plugin. Sends SIGTERM to the MCC process and clears its tracked PID. Does nothing if MCC is not running.",
+		description = "Stop (terminate) the running MCC (Minecraft Console Client) bot managed by this plugin. Sends SIGTERM, escalates to SIGKILL if the process does not exit within about 1.5 seconds, waits for it to die, then clears the tracked PID. Does nothing if MCC is not running.",
 		inputSchema = { type = "object", properties = {}, required = {} },
 		handler = function(a_World, a_Args)
 			local ok, msg = StopMCC()
@@ -524,7 +524,7 @@ local g_Tools = {
 
 	{
 		name = "reload_plugin",
-		description = "Reload a specific Cuberite plugin by name. Returns the console output from the reload command. Note: reloading MCPServer itself will disconnect the MCP client.",
+		description = "Reload a specific Cuberite plugin by name. Queues the reload on the main tick thread (async). Note: reloading MCPServer itself will briefly disconnect the MCP client.",
 		inputSchema = {
 			type = "object",
 			properties = {
@@ -535,8 +535,12 @@ local g_Tools = {
 		handler = function(a_World, a_Args)
 			local name = a_Args.name
 			if not name or name == "" then return textErr("name is required") end
-			local ok, output = cPluginManager:ExecuteConsoleCommand("plugins reload " .. name)
-			return textOK(toJsonString({ plugin = name, success = ok == true, output = output or "" }))
+			local pm = cPluginManager:Get()
+			if not pm:IsPluginLoaded(name) then
+				return textOK(toJsonString({ plugin = name, success = false, output = "plugin is not loaded" }))
+			end
+			pm:ReloadPlugin(name)
+			return textOK(toJsonString({ plugin = name, success = true, output = "reload queued" }))
 		end,
 	},
 

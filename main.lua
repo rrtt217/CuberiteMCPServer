@@ -146,6 +146,13 @@ end
 function Initialize(a_Plugin)
 	g_PluginFolder = a_Plugin:GetLocalFolder()
 
+	-- Seed the RNG so randomized MCC usernames actually differ between
+	-- launches (math.random is otherwise unseeded and repeats the same
+	-- sequence every server start).
+	math.randomseed(os.time())
+	math.random()
+	math.random()
+
 	-- Load config (writes defaults on first run).
 	LoadMCPConfig(g_PluginFolder)
 
