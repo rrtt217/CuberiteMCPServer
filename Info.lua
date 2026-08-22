@@ -8,7 +8,10 @@ g_PluginInfo =
 	Name = "MCPServer",
 	Version = "0.1",
 	Date = "2026-07-27",
-	Description = [[Exposes Cuberite as an MCP (Model Context Protocol) server over Streamable HTTP, so LLM hosts can call server tools.]],
+	Description = [[Exposes Cuberite as an MCP (Model Context Protocol) server over
+		Streamable HTTP, so LLM hosts can call server tools. Includes a configurable
+		void-fall guard (HOOK_PLAYER_MOVING) that protects MCC bots and players from
+		death/void loops (settings.ini).]],
 
 	Commands =
 	{

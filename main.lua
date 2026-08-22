@@ -155,6 +155,10 @@ function Initialize(a_Plugin)
 	dofile(g_PluginFolder .. "/jsonrpc.lua")
 	dofile(g_PluginFolder .. "/mcc.lua")
 	dofile(g_PluginFolder .. "/tools.lua")
+	dofile(g_PluginFolder .. "/void_guard.lua")
+
+	-- Void-fall loop guard for MCC bots and players (settings.ini [VoidGuard]).
+	InitVoidGuard()
 
 	-- Register console commands via the shared InfoReg helper.
 	dofile(cPluginManager:GetPluginsPath() .. "/InfoReg.lua")
