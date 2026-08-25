@@ -17,6 +17,14 @@
 -- the client, correcting the MCC client's stale local state ("sticky" fix:
 -- once corrected, later deaths no longer re-trigger the loop).
 --
+-- The guard only acts when the player's body is actually EMBEDDED in solid
+-- blocks (the client reporting a position inside the terrain), which is the
+-- loop's signature -- on this box the stuck client froze at y=38.1 inside a
+-- solid stone column. A legitimate player never has a solid block at head
+-- level (caves, slopes and water are all air/water), so a raw Y threshold
+-- that also caught them would cause false positives; requiring the solid
+-- check removes them and lets VoidY sit much lower.
+--
 -- Both actions are rate-limited per player (server uptime seconds), so a
 -- client that keeps re-sending a stale below-threshold position (we measured
 -- this happening every ~2 s indefinitely without a cooldown) cannot cause
@@ -26,7 +34,7 @@
 --   InitVoidGuard() -> (ok, msg)  read settings.ini and register the hook if enabled
 
 local g_Enabled  = true   -- master switch, from settings.ini [VoidGuard] Enabled
-local g_VoidY    = 40     -- below this Y the move is refused (configurable)
+local g_VoidY    = 30     -- below this Y an embedded player is rescued (configurable)
 local g_SafeY    = 74     -- the Y the player is pulled back up to (configurable)
 local g_Cooldown = 1.0    -- seconds between teleport rescues for the same player
 local g_LogEvery = 30.0   -- seconds between LOG lines for the same stuck player
@@ -59,9 +67,9 @@ local function OnPlayerMoving(a_Player, a_OldPos, a_NewPos, a_PreviousIsOnGround
 		return false
 	end
 
-	-- Only the overworld: in the Nether/End y=40 is normal terrain or lava,
-	-- not a void. The MCC bots (and this guard's purpose) live in the
-	-- default overworld.
+	-- Only the overworld: in the Nether/End the danger-line Y is normal
+	-- terrain or lava, not a void. The MCC bots (and this guard's purpose)
+	-- live in the default overworld.
 	if a_Player:GetWorld():GetDimension() ~= dimOverworld then
 		return false
 	end
@@ -79,17 +87,25 @@ local function OnPlayerMoving(a_Player, a_OldPos, a_NewPos, a_PreviousIsOnGround
 		return false
 	end
 
-	-- Only interfere while the player is actually descending. A player simply
-	-- standing or swimming below the threshold is left alone. (Trade-off:
-	-- a legitimate walkway descending below VoidY -- a deep cave or ravine --
-	-- triggers the guard too; that is the accepted cost of a low, safe
-	-- threshold, documented here for future tuning.)
-	if newY >= a_OldPos.y then
+	-- Only act when the player's body is actually embedded in solid blocks.
+	-- This is the signature of the MCC death/void loop: the client keeps
+	-- reporting a position inside the terrain (we measured it frozen at
+	-- y=38.1 inside a solid stone column), and the server accepts it, so the
+	-- player is stuck taking damage forever without respawning. A legitimate
+	-- player -- even deep underground, swimming or on a slope -- is always
+	-- in air or water, never inside a solid block, so this check removes the
+	-- false positives a raw Y threshold would cause. Check the block at head
+	-- level: a standing player's head block is always air, an embedded
+	-- player's is solid. (GetBlock returns 0 for unloaded chunks -> not solid
+	-- -> no guard; fine.)
+	local blockType = a_Player:GetWorld():GetBlock(Vector3i(
+		math.floor(a_NewPos.x), math.floor(a_NewPos.y) + 1, math.floor(a_NewPos.z)))
+	if not cBlockInfo:IsSolid(blockType) then
 		return false
 	end
 
-	-- Below the threshold and mid-fall: refuse the movement so the player
-	-- cannot sink any further.
+	-- Below the danger line AND embedded in solid ground: refuse the movement
+	-- so the player cannot stay sunk inside the terrain.
 	local uuid = a_Player:GetUUID()
 	local now = cRoot:Get():GetServerUpTime()
 	local last = g_LastRescue[uuid]
@@ -102,6 +118,10 @@ local function OnPlayerMoving(a_Player, a_OldPos, a_NewPos, a_PreviousIsOnGround
 	-- client, which is what corrects the MCC client's stale local state.
 	g_LastRescue[uuid] = now
 	a_Player:TeleportToCoords(a_NewPos.x, g_SafeY, a_NewPos.z)
+	-- With a low VoidY the player transits through solid terrain on the way
+	-- down and takes suffocation damage before being caught; restore full
+	-- health so the rescue leaves the player healthy at the safe spot.
+	a_Player:SetHealth(a_Player:GetMaxHealth())
 
 	-- Log the rescue, but at most once per LogEvery seconds per player so a
 	-- stuck client cannot flood the console.
@@ -134,7 +154,7 @@ function InitVoidGuard()
 		ini:SetValue("VoidGuard", "Enabled", "true")
 	end
 	g_Enabled = ini:GetValue("VoidGuard", "Enabled", "true"):lower() == "true"
-	g_VoidY   = ini:GetValueSetI("VoidGuard", "VoidY", 40)
+	g_VoidY   = ini:GetValueSetI("VoidGuard", "VoidY", 30)
 	g_SafeY   = ini:GetValueSetI("VoidGuard", "SafeY", 74)
 	ini:WriteFile(path)
 
