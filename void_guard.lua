@@ -10,48 +10,52 @@
 --
 -- Remedial one-shot fixes (TeleportToCoords, SetPosition+SetHealth, Respawn,
 -- the MCC-side respawn packet, "move" commands) all fail because the client's
--- next falling-position packet pulls the player back into the void. The only
--- reliable cure is HOOK_PLAYER_MOVING: refusing the movement by returning
--- true (so the new position is never stored) and teleporting the player back
--- up. While the hook is active the server force-syncs the position back to
--- the client, correcting the MCC client's stale local state ("sticky" fix:
--- once corrected, later deaths no longer re-trigger the loop).
+-- next falling-position packet pulls the player back into the void. The
+-- reliable cure is to refuse the reported movement AND hold the player still
+-- long enough for the server to force-sync its real position back to the
+-- client, correcting the client's stale local state.
 --
--- The guard only acts when the player's body is actually EMBEDDED in solid
--- blocks (the client reporting a position inside the terrain), which is the
--- loop's signature -- on this box the stuck client froze at y=38.1 inside a
--- solid stone column. A legitimate player never has a solid block at head
--- level (caves, slopes and water are all air/water), so a raw Y threshold
--- that also caught them would cause false positives; requiring the solid
--- check removes them and lets VoidY sit much lower.
+-- Detection: the guard only acts when a player's movement would take their
+-- body below VoidY while EMBEDDED in solid blocks (the client reporting a
+-- position inside the terrain) -- the loop's signature. On this box the
+-- stuck client froze at y=38.1 inside a solid stone column. A legitimate
+-- player never has a solid block at head level (caves, slopes and water are
+-- all air/water), so this check removes all false positives. VoidY marks
+-- how deep an embedded player must be before the guard acts (default 40).
 --
--- Both actions are rate-limited per player (server uptime seconds), so a
--- client that keeps re-sending a stale below-threshold position (we measured
--- this happening every ~2 s indefinitely without a cooldown) cannot cause
--- per-tick teleport jitter or log spam.
+-- Response: the player is teleported back up to SafeY (x/z preserved) and a
+-- per-player freeze counter is started at g_FreezeTicksInit world ticks.
+-- While the counter is above zero, HOOK_PLAYER_MOVING refuses ALL movement,
+-- holding the player at the safe spot so the client re-syncs; each
+-- HOOK_WORLD_TICK decrements the counter by one until it reaches zero, at
+-- which point movement is allowed again (and a still-stuck client simply
+-- triggers a new rescue).
+--
+-- Logging is throttled (once per 30 s per player) so a client stuck in a
+-- cycle cannot flood the console.
 --
 -- Exposed globals (used by main.lua):
---   InitVoidGuard() -> (ok, msg)  read settings.ini and register the hook if enabled
+--   InitVoidGuard() -> (ok, msg)  read settings.ini and register the hooks if enabled
 
-local g_Enabled  = true   -- master switch, from settings.ini [VoidGuard] Enabled
-local g_VoidY    = 30     -- below this Y an embedded player is rescued (configurable)
-local g_SafeY    = 74     -- the Y the player is pulled back up to (configurable)
-local g_Cooldown = 1.0    -- seconds between teleport rescues for the same player
-local g_LogEvery = 30.0   -- seconds between LOG lines for the same stuck player
-local g_NoReturnY = -500  -- past this the server handles the player itself; we stand down
+local g_Enabled      = true   -- master switch, from settings.ini [VoidGuard] Enabled
+local g_VoidY        = 40     -- below this Y an embedded player is rescued (configurable)
+local g_SafeY        = 74     -- the Y the player is pulled back up to (configurable)
+local g_NoReturnY    = -500   -- past this the server handles the player itself; we stand down
+local g_FreezeTicksInit = 10  -- world ticks the player is held after each rescue
+local g_LogEvery     = 30.0   -- seconds between LOG lines for the same stuck player
 
 -- Per-player state, keyed by the player's UUID so different players (real
 -- players, several MCC bots) are throttled independently.
-local g_LastRescue = {}   -- uuid -> server uptime seconds of the last teleport
-local g_LastLog    = {}   -- uuid -> server uptime seconds of the last LOG line
+local g_FreezeTicks = {}   -- uuid -> world ticks remaining; refuse ALL movement while > 0
+local g_LastLog    = {}    -- uuid -> server uptime seconds of the last LOG line
 
 ----------------------------------------------------------------------
--- Hook handler
+-- Hook handlers
 ----------------------------------------------------------------------
 
--- HOOK_PLAYER_MOVING: refuse movement that would take the player below the
--- void threshold, and teleport them back up. Returning true prohibits the
--- movement; returning false lets it through untouched.
+-- HOOK_PLAYER_MOVING: detect the void-fall stuck loop and hold the player.
+-- Returning true prohibits the (whole) movement; returning false lets it
+-- through untouched.
 -- @param a_Player cPlayer  the player (already holds the new position)
 -- @param a_OldPos Vector3d  the old position
 -- @param a_NewPos Vector3d  the requested new position
@@ -74,9 +78,19 @@ local function OnPlayerMoving(a_Player, a_OldPos, a_NewPos, a_PreviousIsOnGround
 		return false
 	end
 
+	local uuid = a_Player:GetUUID()
+
+	-- Freeze window active: refuse ALL movement. The player was just pulled
+	-- up to SafeY, and every incoming move is rejected to hold them there
+	-- while the server force-syncs the position back to the client.
+	local ticks = g_FreezeTicks[uuid]
+	if ticks and (ticks > 0) then
+		return true
+	end
+
 	local newY = a_NewPos.y
 
-	-- Fast path: above the threshold, all movement is normal.
+	-- Fast path: above the danger line, all movement is normal.
 	if newY >= g_VoidY then
 		return false
 	end
@@ -87,59 +101,65 @@ local function OnPlayerMoving(a_Player, a_OldPos, a_NewPos, a_PreviousIsOnGround
 		return false
 	end
 
-	-- Only act when the player's body is actually embedded in solid blocks.
-	-- This is the signature of the MCC death/void loop: the client keeps
-	-- reporting a position inside the terrain (we measured it frozen at
-	-- y=38.1 inside a solid stone column), and the server accepts it, so the
-	-- player is stuck taking damage forever without respawning. A legitimate
-	-- player -- even deep underground, swimming or on a slope -- is always
-	-- in air or water, never inside a solid block, so this check removes the
-	-- false positives a raw Y threshold would cause. Check the block at head
-	-- level: a standing player's head block is always air, an embedded
-	-- player's is solid. (GetBlock returns 0 for unloaded chunks -> not solid
-	-- -> no guard; fine.)
+	-- Detection: the player's body must be embedded in solid blocks. This is
+	-- the signature of the MCC death/void loop: the client keeps reporting a
+	-- position inside the terrain (we measured it frozen at y=38.1 inside a
+	-- solid stone column), and the server accepts it, so the player is stuck
+	-- taking damage forever without respawning. A legitimate player -- even
+	-- deep underground, swimming or on a slope -- is always in air or water,
+	-- never inside a solid block, so this check removes the false positives a
+	-- raw Y threshold would cause. Check the block at head level: a standing
+	-- player's head block is always air, an embedded player's is solid.
+	-- (GetBlock returns 0 for unloaded chunks -> not solid -> no guard; fine.)
 	local blockType = a_Player:GetWorld():GetBlock(Vector3i(
 		math.floor(a_NewPos.x), math.floor(a_NewPos.y) + 1, math.floor(a_NewPos.z)))
 	if not cBlockInfo:IsSolid(blockType) then
 		return false
 	end
 
-	-- Below the danger line AND embedded in solid ground: refuse the movement
-	-- so the player cannot stay sunk inside the terrain.
-	local uuid = a_Player:GetUUID()
-	local now = cRoot:Get():GetServerUpTime()
-	local last = g_LastRescue[uuid]
-	if (last ~= nil) and ((now - last) < g_Cooldown) then
-		return true  -- held in place; the cooldown has not elapsed yet
-	end
-
-	-- Cooldown elapsed: pull the player back up to the safe height, keeping
-	-- their x/z. The teleport also force-syncs the position back to the
-	-- client, which is what corrects the MCC client's stale local state.
-	g_LastRescue[uuid] = now
+	-- Detected a void-fall stuck loop: pull the player back up (restoring
+	-- health lost to suffocation on the way down), start the freeze counter
+	-- so ALL further movement is refused for the next ticks, and reject this
+	-- move.
 	a_Player:TeleportToCoords(a_NewPos.x, g_SafeY, a_NewPos.z)
-	-- With a low VoidY the player transits through solid terrain on the way
-	-- down and takes suffocation damage before being caught; restore full
-	-- health so the rescue leaves the player healthy at the safe spot.
 	a_Player:SetHealth(a_Player:GetMaxHealth())
+	g_FreezeTicks[uuid] = g_FreezeTicksInit
 
 	-- Log the rescue, but at most once per LogEvery seconds per player so a
 	-- stuck client cannot flood the console.
+	local now = cRoot:Get():GetServerUpTime()
 	local lastLog = g_LastLog[uuid]
 	if (lastLog == nil) or ((now - lastLog) >= g_LogEvery) then
 		g_LastLog[uuid] = now
 		LOG("[VoidGuard] rescued " .. a_Player:GetName() .. " from void fall (y=" .. string.format("%.1f", newY)
-			.. "), teleported to y=" .. g_SafeY)
+			.. "), teleported to y=" .. g_SafeY .. ", frozen for " .. g_FreezeTicksInit .. " ticks")
 	end
 
 	return true
+end
+
+-- HOOK_WORLD_TICK: count the freeze timers down. Hooked on the default world
+-- only so a multi-world server does not drain the counters faster than 20/s.
+-- @param a_World cWorld  world that is ticking
+-- @param a_TimeDelta number  milliseconds since the previous tick
+local function OnWorldTick(a_World, a_TimeDelta)
+	if a_World ~= cRoot:Get():GetDefaultWorld() then
+		return
+	end
+	for uuid, ticks in pairs(g_FreezeTicks) do
+		if ticks > 1 then
+			g_FreezeTicks[uuid] = ticks - 1
+		else
+			g_FreezeTicks[uuid] = nil
+		end
+	end
 end
 
 ----------------------------------------------------------------------
 -- Module entry point (called from main.lua Initialize)
 ----------------------------------------------------------------------
 
--- Read settings.ini ([VoidGuard] section) and register the hook when enabled.
+-- Read settings.ini ([VoidGuard] section) and register the hooks when enabled.
 -- Defaults are written into settings.ini on first run, like config.lua does.
 -- @return boolean ok, string msg
 function InitVoidGuard()
@@ -154,7 +174,7 @@ function InitVoidGuard()
 		ini:SetValue("VoidGuard", "Enabled", "true")
 	end
 	g_Enabled = ini:GetValue("VoidGuard", "Enabled", "true"):lower() == "true"
-	g_VoidY   = ini:GetValueSetI("VoidGuard", "VoidY", 30)
+	g_VoidY   = ini:GetValueSetI("VoidGuard", "VoidY", 40)
 	g_SafeY   = ini:GetValueSetI("VoidGuard", "SafeY", 74)
 	ini:WriteFile(path)
 
@@ -164,6 +184,8 @@ function InitVoidGuard()
 	end
 
 	cPluginManager:AddHook(cPluginManager.HOOK_PLAYER_MOVING, OnPlayerMoving)
-	LOG("[VoidGuard] enabled (VoidY=" .. g_VoidY .. ", SafeY=" .. g_SafeY .. ")")
+	cPluginManager:AddHook(cPluginManager.HOOK_WORLD_TICK, OnWorldTick)
+	LOG("[VoidGuard] enabled (VoidY=" .. g_VoidY .. ", SafeY=" .. g_SafeY
+		.. ", freeze=" .. g_FreezeTicksInit .. " ticks)")
 	return true, "void guard enabled"
 end
