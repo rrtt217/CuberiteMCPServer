@@ -12,5 +12,13 @@ mcc_temp.backup.ini
 # own. Portable defaults live in settings.ini and are committed.
 config.ini
 
+# --- Development scratch & dependencies ---
+# .scratch/:  transient probes/captures (kept out of git)
+# .npmcache:  npm cache relocated into the workspace (sandbox blocks ~/.npm)
+# bot/node_modules: installed deps; bot/ installs via npm (see bot/README.md)
+.scratch/
+.npmcache/
+bot/node_modules/
+
 # --- Editor / IDE local files ---
 *.code-workspace
