@@ -1,15 +1,19 @@
 {
-  "name": "bot",
+  "name": "mcpserver-bot",
   "version": "1.0.0",
-  "description": "",
+  "private": true,
+  "description": "Mineflayer bot with a stateless HTTP JSON-RPC (MCP) endpoint, replacing MCC for the MCPServer plugin",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "start": "node index.js",
+    "smoke": "node smoke.js 1.8.9"
+  },
   "dependencies": {
     "mineflayer": "^4.38.0"
-  }
+  },
+  "license": "MIT"
 }
