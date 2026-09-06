@@ -26,7 +26,7 @@ module.exports = function moveActions(botCtl) {
       if (![target.x, target.y, target.z].every((n) => Number.isFinite(n))) {
         return { success: false, errorCode: 'invalid_args', data: { x, y, z } }
       }
-      try { await b.lookAt({ x: target.x, y: target.y + 1, z: target.z }) } catch (e) { /* non-fatal */ }
+      try { await b.lookAt(require('vec3')(target.x, target.y + 1, target.z)) } catch (e) { /* non-fatal */ }
       const p0 = botCtl.pos()
       const d = Math.hypot(p0.x - target.x, p0.z - target.z)
       const budgetMs = Math.min(60000, Math.max(2000, (d / 3.0) * 1000))
@@ -49,7 +49,7 @@ module.exports = function moveActions(botCtl) {
       if (!b) return { success: false, errorCode: 'bot_offline' }
       const t = { x: Number(x), y: Number(y), z: Number(z) }
       if (![t.x, t.y, t.z].every((n) => Number.isFinite(n))) return { success: false, errorCode: 'invalid_args' }
-      return b.lookAt(t, opts && opts.force !== undefined ? !!opts.force : true).then(() => ({
+      return b.lookAt(require('vec3')(t.x, t.y, t.z), opts && opts.force !== undefined ? !!opts.force : true).then(() => ({
         success: true, data: { yaw: b.entity.yaw, pitch: b.entity.pitch, target: t, position: botCtl.pos() },
       })).catch((e) => ({ success: false, errorCode: 'look_failed', data: { error: e.message } }))
     },

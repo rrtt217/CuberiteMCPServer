@@ -42,7 +42,8 @@ module.exports = function worldActions(botCtl) {
     blockAt(x, y, z) {
       const b = assertOnline()
       if (!b) return { success: false, errorCode: 'bot_offline' }
-      const blk = b.blockAt({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) })
+      const vec3 = require('vec3')
+      const blk = b.blockAt(vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
       return { success: true, data: { x: Math.floor(x), y: Math.floor(y), z: Math.floor(z),
         name: blk ? blk.name : null, type: blk ? blk.type : null, boundingBox: blk ? blk.boundingBox : null } }
     },

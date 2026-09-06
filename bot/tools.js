@@ -166,6 +166,17 @@ function buildRegistry(botCtl) {
       inputSchema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, z: { type: 'integer' } }, required: ['x', 'y', 'z'] },
       handler: (a) => interact.digBlock(a.x, a.y, a.z).then((r) => (r.success ? ok(r.data) : r)) },
 
+    { name: 'mcc_place_block',
+      description: 'Place the currently held block/item at a target block location. The bot must be holding a placeable item (see mcc_select_item); face = auto | down | up | north | south | west | east (auto prefers placing on top of the block below the target).',
+      inputSchema: { type: 'object',
+        properties: {
+          x: { type: 'integer', description: 'Target block X' },
+          y: { type: 'integer', description: 'Target block Y' },
+          z: { type: 'integer', description: 'Target block Z' },
+          face: { type: 'string', enum: ['auto', 'down', 'up', 'north', 'south', 'west', 'east'], default: 'auto', description: 'Which adjacent block to place against. auto scans neighbours, preferring below.' },
+        }, required: ['x', 'y', 'z'] },
+      handler: (a) => interact.placeBlock(a.x, a.y, a.z, a.face || 'auto').then((r) => (r.success ? ok(r.data) : r)) },
+
     { name: 'mcc_rebuild',
       description: 'Destroy the current bot instance and create a fresh one (optional new username).',
       inputSchema: { type: 'object', properties: { newUsername: { type: ['string', 'null'], default: null }, randomUsername: { type: ['boolean', 'null'], default: null } }, required: [] },

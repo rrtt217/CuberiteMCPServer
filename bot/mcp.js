@@ -95,9 +95,28 @@ function makeServer(registry, log) {
       Promise.resolve()
         .then(() => tool.handler(args))
         .then((result) => {
-          // result: { text } or { text, isError }
-          const content = [{ type: 'text', text: String(result.text != null ? result.text : '') }]
-          send(res, { jsonrpc: '2.0', id, result: { content, isError: !!result.isError } })
+          // Accepted result shapes:
+          //   { text, isError? }                       — pre-formatted text
+          //   { success, data?, errorCode? }           — raw action result:
+          //     serialized to the MCC-style JSON text so handlers can return
+          //     action results directly.
+          let text = ''
+          let isError = false
+          if (result && typeof result.text === 'string') {
+            text = result.text
+            isError = !!result.isError
+          } else if (result && result.success !== undefined) {
+            const o = { success: !!result.success }
+            if (result.errorCode) o.errorCode = result.errorCode
+            if (result.errorCode === undefined && result.data !== undefined) o.data = result.data
+            if (result.data !== undefined) o.data = result.data
+            text = JSON.stringify(o)
+            isError = result.success === false
+          } else {
+            text = JSON.stringify(result)
+          }
+          const content = [{ type: 'text', text: String(text != null ? text : '') }]
+          send(res, { jsonrpc: '2.0', id, result: { content, isError } })
         })
         .catch((err) => {
           send(res, { jsonrpc: '2.0', id, error: { code: -32603, message: err.message || String(err) } })

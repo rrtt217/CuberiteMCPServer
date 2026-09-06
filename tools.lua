@@ -117,13 +117,15 @@ local g_Tools = {
 			a_World:ForEachPlayer(function(a_Player)
 				if a_Player:GetName():lower():find(name:lower(), 1, true) then
 					local gm = a_Player:GetGameMode()
+					local eq = a_Player:GetEquippedItem()
 					found = {
-						name     = a_Player:GetName(),
-						x        = a_Player:GetPosX(),
-						y        = a_Player:GetPosY(),
-						z        = a_Player:GetPosZ(),
-						health   = a_Player:GetHealth(),
-						gamemode = GM_NAMES[gm] or tostring(gm),
+						name          = a_Player:GetName(),
+						x             = a_Player:GetPosX(),
+						y             = a_Player:GetPosY(),
+						z             = a_Player:GetPosZ(),
+						health        = a_Player:GetHealth(),
+						gamemode      = GM_NAMES[gm] or tostring(gm),
+						has_equipped  = (eq ~= nil) and (not eq:IsEmpty()),
 					}
 					return true  -- abort enumeration
 				end

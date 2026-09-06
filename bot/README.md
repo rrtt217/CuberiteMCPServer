@@ -46,7 +46,8 @@ Movement: `mcc_look_at`, `mcc_look_direction`, `mcc_toggle_sprint`,
 `mcc_toggle_sneak`, `mcc_change_hotbar_slot`, `mcc_move_to`, `mcc_respawn`
 Inventory: `mcc_inventory_snapshot`, `mcc_inventory_search`, `mcc_select_item`
 EntityWorld: `mcc_entities_query`, `mcc_world_block_at`, `mcc_raycast_block`,
-`mcc_player_nearby`, `mcc_activate_block`, `mcc_entity_attack`, `mcc_dig_block`
+`mcc_player_nearby`, `mcc_activate_block`, `mcc_entity_attack`, `mcc_dig_block`,
+`mcc_place_block`
 Lifecycle: `mcc_rebuild` (new bot instance, optional new username), `mcc_quit_client`
 
 ## Differences vs MCC (documented)
@@ -62,3 +63,13 @@ Lifecycle: `mcc_rebuild` (new bot instance, optional new username), `mcc_quit_cl
 ## Smoke
 
 `node smoke.js 1.8.9` runs the Phase 0 gate (see docs/smoke-results.md).
+## Placing & digging
+
+`mcc_place_block` (`x/y/z` + optional `face`: auto|down|up|north|south|west|east) places the
+held item at the target; `mcc_dig_block` digs one. Two server-side constraints to know:
+
+- **Spawn protection**: the Core plugin denies block modifications within its
+  spawn-protect radius for non-OP players (`core.spawnprotect.bypass`). The bot
+  is in the default group, so place/dig only work outside that radius.
+- **Self-collision**: the server refuses to place a block where the bot's own
+  body stands; the tool pre-checks this and returns a clear error.
