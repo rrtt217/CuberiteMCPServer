@@ -161,6 +161,7 @@ function Initialize(a_Plugin)
 	dofile(g_PluginFolder .. "/http.lua")
 	dofile(g_PluginFolder .. "/jsonrpc.lua")
 	dofile(g_PluginFolder .. "/mcc.lua")
+	dofile(g_PluginFolder .. "/bot.lua")
 	dofile(g_PluginFolder .. "/tools.lua")
 	dofile(g_PluginFolder .. "/void_guard.lua")
 
@@ -174,13 +175,22 @@ function Initialize(a_Plugin)
 	-- Autostart the server.
 	StartMCPServer()
 
-	-- Autostart MCC if enabled and AutoStart is set, but delay it so the
-	-- server port is ready.
-	if g_MCPConfig.MCC.Enabled and g_MCPConfig.MCC.AutoStart then
+	-- Autostart the bot engine if enabled and AutoStart is set, but delay it
+	-- so the server port is ready. The Engine switch selects MCC (legacy) or
+	-- the mineflayer bot.
+	local engine = g_MCPConfig.Engine or "mcc"
+	if engine == "mineflayer" and g_MCPConfig.Bot.Enabled and g_MCPConfig.Bot.AutoStart then
+		cRoot:Get():GetDefaultWorld():ScheduleTask(60, function()
+			StartBot()
+		end)
+		LOG("[MCP] mineflayer bot scheduled to start in 60 ticks (~3s)")
+	elseif engine ~= "mineflayer" and g_MCPConfig.MCC.Enabled and g_MCPConfig.MCC.AutoStart then
 		cRoot:Get():GetDefaultWorld():ScheduleTask(60, function()
 			StartMCC()
 		end)
 		LOG("[MCP] MCC scheduled to start in 60 ticks (~3s)")
+	else
+		LOG("[MCP] Bot engine '" .. tostring(engine) .. "' has no autostart target enabled")
 	end
 
 	LOG("[MCP] MCPServer plugin initialized (port " .. g_MCPConfig.Port .. ")")
@@ -188,7 +198,9 @@ function Initialize(a_Plugin)
 end
 
 function OnDisable()
+	-- Stop both engines (idempotent; each has a not-running short-circuit).
 	StopMCC()
+	StopBot()
 	StopMCPServer()
 	LOG("[MCP] MCPServer plugin disabled")
 end

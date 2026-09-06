@@ -429,6 +429,70 @@ local g_Tools = {
 	},
 
 	----------------------------------------------------------------------
+	-- Mineflayer bot management tools (Engine = "mineflayer")
+	-- The mcc_* tools above manage the MCC bot; these manage the mineflayer
+	-- bot. Both are always exposed; which one is active depends on the
+	-- [Engine] Engine setting in config.ini.
+	----------------------------------------------------------------------
+	{
+		name = "bot_status",
+		description = "Return the status of the mineflayer bot managed by this plugin. Shows whether the bot is enabled, running, its PID, username, version, and MCP port.",
+		inputSchema = { type = "object", properties = {}, required = {} },
+		handler = function(a_World, a_Args)
+			local status = GetBotStatus()
+			status.engine = g_MCPConfig.Engine or "mcc"
+			return textOK(toJsonString(status))
+		end,
+	},
+	{
+		name = "bot_start",
+		description = "Start (summon) the mineflayer bot managed by this plugin. Launches bot/index.js as a background child process using the configured settings. Pass random_name='force' to always randomize the username suffix (also terminates any running bot first), or 'fixed' to use the base username. With no random_name, the RandomUsername config is honored.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				random_name = { type = "string", enum = { "force", "fixed" }, description = "Override username randomization for this launch: 'force' appends a random suffix, 'fixed' uses the base username. Omit to honor RandomUsername." },
+			},
+			required = {},
+		},
+		handler = function(a_World, a_Args)
+			local opts = {}
+			if a_Args.random_name == "force" or a_Args.random_name == "fixed" then
+				opts.random_name = a_Args.random_name
+			end
+			local ok, msg = StartBot(opts)
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
+	{
+		name = "bot_stop",
+		description = "Stop (terminate) the running mineflayer bot managed by this plugin. Sends SIGTERM (Node exits by default), escalates to SIGKILL after about 1.5 seconds, waits for it to die, then clears the tracked PID.",
+		inputSchema = { type = "object", properties = {}, required = {} },
+		handler = function(a_World, a_Args)
+			local ok, msg = StopBot()
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
+	{
+		name = "bot_restart",
+		description = "Restart the mineflayer bot managed by this plugin. Stops the running bot (if any) and starts a fresh one. Useful after changing bot configuration. Pass random_name='force' (random suffix) or 'fixed' (base username) to override RandomUsername.",
+		inputSchema = {
+			type = "object",
+			properties = {
+				random_name = { type = "string", enum = { "force", "fixed" }, description = "Override username randomization for the new launch: 'force' appends a random suffix, 'fixed' uses the base username. Omit to honor RandomUsername." },
+			},
+			required = {},
+		},
+		handler = function(a_World, a_Args)
+			local opts = {}
+			if a_Args.random_name == "force" or a_Args.random_name == "fixed" then
+				opts.random_name = a_Args.random_name
+			end
+			local ok, msg = RestartBot(opts)
+			return textOK(toJsonString({ success = ok == true, message = msg }))
+		end,
+	},
+
+	----------------------------------------------------------------------
 	-- World manipulation tools
 	----------------------------------------------------------------------
 	{

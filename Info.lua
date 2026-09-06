@@ -95,4 +95,46 @@ g_PluginInfo =
 			},
 		},
 	},
+	bot =
+	{
+		Subcommands =
+		{
+			start =
+			{
+				HelpString = "Start the mineflayer bot (bot/index.js)",
+				Handler = HandleConsoleBot,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Launches the mineflayer bot (bot/index.js) with [Bot] settings." },
+				},
+			},
+			stop =
+			{
+				HelpString = "Stop the running mineflayer bot",
+				Handler = HandleConsoleBot,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Sends SIGTERM to the bot process and clears its tracked PID." },
+				},
+			},
+			restart =
+			{
+				HelpString = "Restart the mineflayer bot",
+				Handler = HandleConsoleBot,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Stops the running bot (if any) and starts a fresh one." },
+				},
+			},
+			status =
+			{
+				HelpString = "Report mineflayer bot status",
+				Handler = HandleConsoleBot,
+				ParameterCombinations =
+				{
+					{ Params = "", Help = "Prints whether the bot is enabled/running, its PID, username, version, and MCP port." },
+				},
+			},
+		},
+	},
 }

@@ -5,6 +5,8 @@
 mcc_output.log
 mcc_temp.ini
 mcc_temp.backup.ini
+bot_output.log
+bot_temp.ini
 
 # --- Machine-specific plugin config ---
 # config.ini contains absolute local paths (e.g. Path=/home/<user>/...); the
