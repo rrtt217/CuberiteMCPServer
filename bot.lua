@@ -14,6 +14,53 @@
 --   HandleConsoleBot(a_Split) -> (true, msg)
 
 local g_BotPid = nil
+
+----------------------------------------------------------------------
+-- Process helpers
+----------------------------------------------------------------------
+
+local function IsPidAlive(a_Pid)
+	if not a_Pid then
+		return false
+	end
+	local ok = os.execute("kill -0 " .. a_Pid .. " 2>/dev/null")
+	return (ok == 0) or (ok == true)
+end
+
+-- Whether the PID is alive AND still the bot process we launched (cmdline
+-- guard against PID reuse).
+local function IsBotProcess(a_Pid)
+	if not IsPidAlive(a_Pid) then
+		return false
+	end
+	local f = io.popen("tr '\0' ' ' < /proc/" .. a_Pid .. "/cmdline 2>/dev/null")
+	local cmdline = ""
+	if f then
+		cmdline = f:read("*a") or ""
+		f:close()
+	end
+	if cmdline == "" then
+		return true
+	end
+	local cfg = g_MCPConfig.Bot
+	-- Match the bot entry script path (fall back to a bare "bot/index.js").
+	return (cfg.BotDir ~= "") and (
+		(cmdline:find(cfg.BotDir .. "/index.js", 1, true) ~= nil) or
+		(cmdline:find("bot/index.js", 1, true) ~= nil)
+	)
+end
+
+local function WaitForExit(a_Pid, a_Seconds, a_Sleep)
+	local deadline = (a_Seconds / a_Sleep) + 0.5
+	for _ = 1, math.floor(deadline) do
+		if not IsPidAlive(a_Pid) then
+			return true
+		end
+		os.execute("sleep " .. tostring(a_Sleep))
+	end
+	return not IsPidAlive(a_Pid)
+end
+
 ----------------------------------------------------------------------
 -- Command construction
 ----------------------------------------------------------------------
