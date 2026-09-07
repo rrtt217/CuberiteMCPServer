@@ -9,7 +9,7 @@ const DEFAULTS = {
   port: 25568,
   username: 'TestBot',
   randomUsername: true,
-  version: '1.8.9',          // pinned by Phase 0 (Cuberite block data OK at 1.8.9)
+  version: '1.12.2',          // max Cuberite protocol; 1.9-1.12.2 chunks need patches/prismarine-chunk (postinstall applies it)
   mcpBind: '127.0.0.1',
   mcpPort: 33333,
   reconnectAttempts: 5,

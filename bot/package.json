@@ -10,10 +10,14 @@
   },
   "scripts": {
     "start": "node index.js",
-    "smoke": "node smoke.js 1.8.9"
+    "smoke": "node smoke.js 1.12.2",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "mineflayer": "^4.38.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
 }

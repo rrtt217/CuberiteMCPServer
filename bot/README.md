@@ -7,8 +7,8 @@ Minecraft Console Client (MCC) for the MCPServer plugin. See
 ## Run
 
 ```
-npm install          # installs mineflayer (Node >= 22)
-node index.js        # defaults: connect 127.0.0.1:25568 as offline 1.8.9, MCP on :33333
+npm install          # installs mineflayer + applies the prismarine-chunk patch (postinstall)
+node index.js        # defaults: connect 127.0.0.1:25568 as offline 1.12.2, MCP on :33333
 node index.js --config bot.ini
 ```
 
@@ -20,7 +20,7 @@ Config precedence: CLI `--config <file>` > environment `MCPS_BOT_*` > defaults.
 | port | 25568 | server port |
 | username | TestBot | base username |
 | randomUsername | true | append random suffix |
-| version | 1.8.9 | protocol version; pinned by Phase 0 (Cuberite chunk data broken at 1.9+) |
+| version | 1.12.2 | protocol version; 1.9-1.12.2 all work *after* the prismarine-chunk patch (see below) |
 | mcpBind | 127.0.0.1 | MCP bind address |
 | mcpPort | 33333 | MCP port (kept to match the harness bridge) |
 
@@ -52,13 +52,31 @@ EntityWorld: `mcc_entities_query`, `mcc_world_block_at`, `mcc_raycast_block`,
 `mcc_place_block`
 Lifecycle: `mcc_rebuild` (new bot instance, optional new username), `mcc_quit_client`
 
+## prismarine-chunk patch (required for 1.9+)
+
+Cuberite always sends 1.9-1.12 chunks with the 13-bit *global* palette; a
+prismarine-chunk loader bug sized the block-data BitArray from
+`maxBitsPerBlock` (12, derived from minecraft-data's maxStateId=4095) instead
+of the wire depth (13), so `BitArray.readBuffer(size=1664, data.length=1536)`
+returned without consuming the block data and every later read desynced
+(`varint is too big`, blockAt all-air, bot falls through the ground).
+
+- Fix: `patches/prismarine-chunk+1.41.0.patch` (one line +
+  comment) — `bitsPerValue: bitsPerBlock` in `src/pc/1.9/ChunkColumn.js`.
+- Applied automatically by `npm install` via the `postinstall: patch-package`
+  script. Running the bot from a fresh checkout requires running `npm install`
+  once (or `npx patch-package`).
+- Regenerate after a prismarine-chunk upgrade:
+  `cd bot && npm_config_cache=<workspace>/.npmcache npx patch-package prismarine-chunk`.
+- Full byte-level analysis: docs/version-compat-matrix.md.
+
 ## Differences vs MCC (documented)
 
 - Death → auto respawn with a clean state machine; no "corrupt client / void"
   restart dance. `mcc_rebuild` is the explicit fresh-instance escape hatch.
-- Version pinned to 1.8.9 because Cuberite's 1.9+ chunk data is unparseable by
-  prismarine-chunk (see docs/smoke-results.md §4). Cuberite serves multiple
-  protocol versions per client, so MCC can keep using 1.12.2.
+- Version is 1.12.2 (Cuberite's protocol ceiling). 1.9-1.12.2 chunk parsing
+  required patching prismarine-chunk (see below); before the patch, 1.9+ chunk
+  data desynced ("varint is too big") and blockAt returned air everywhere.
 - Signal handling: SIGTERM/SIGINT quit gracefully (Node default), no signal
   ladder needed.
 

@@ -1,0 +1,21 @@
+diff --git a/node_modules/prismarine-chunk/src/pc/1.9/ChunkColumn.js b/node_modules/prismarine-chunk/src/pc/1.9/ChunkColumn.js
+index 1de1a3c..f2d64b9 100644
+--- a/node_modules/prismarine-chunk/src/pc/1.9/ChunkColumn.js
++++ b/node_modules/prismarine-chunk/src/pc/1.9/ChunkColumn.js
+@@ -225,8 +225,15 @@ module.exports = (Block, mcData) => {
+         }
+ 
+         // number of items in data array
++        // NOTE (Cuberite compat): use the wire byte depth (13 for the 1.9-1.12
++        // global palette) rather than this.maxBitsPerBlock. minecraft-data for
++        // 1.9-1.12 reports maxStateId=4095 (12 bits), which made the BitArray
++        // data.length (1536) differ from the wire's data-array length (832 longs
++        // = 1664 u32), so readBuffer() bailed out without consuming the block
++        // data and every later read desynced ("varint is too big"). Cuberite
++        // always sends 13 bits/block with an empty (length-0) global palette.
+         const dataArray = new BitArray({
+-          bitsPerValue: bitsPerBlock > constants.MAX_BITS_PER_BLOCK ? this.maxBitsPerBlock : bitsPerBlock,
++          bitsPerValue: bitsPerBlock,
+           capacity: 4096
+         }).readBuffer(reader, varInt.read(reader) * 2)
+ 
