@@ -14,6 +14,7 @@ const moveActions = require('./actions/move')
 const interactActions = require('./actions/interact')
 const inventoryActions = require('./actions/inventory')
 const worldActions = require('./actions/world')
+const windowActions = require('./actions/windows')
 
 function ok(data) { return { text: JSON.stringify({ success: true, data: data }) } }
 function fail(errorCode, data) {
@@ -29,6 +30,7 @@ function buildRegistry(botCtl) {
   const interact = interactActions(botCtl)
   const inv = inventoryActions(botCtl)
   const world = worldActions(botCtl)
+  const win = windowActions(botCtl)
 
   const tools = [
     { name: 'ping', description: 'Reachability probe; always available even when the bot is offline.',
@@ -186,6 +188,50 @@ function buildRegistry(botCtl) {
       description: 'Quit the bot process cleanly.',
       inputSchema: { type: 'object', properties: {}, required: [] },
       handler: () => { setTimeout(() => { botCtl.stop('quit'); process.exit(0) }, 100); return ok({ quitting: true }) } },
+
+    { name: 'mcc_container_open_at',
+      description: 'Open an interactable container block (chest, furnace, crafting table, hopper, etc.) at world coordinates and wait for its window to appear. closeCurrent=true (default) closes any previously open window first.',
+      inputSchema: { type: 'object',
+        properties: {
+          x: { type: 'integer' }, y: { type: 'integer' }, z: { type: 'integer' },
+          closeCurrent: { type: 'boolean', default: true },
+        }, required: ['x', 'y', 'z'] },
+      handler: (a) => win.openContainer(a.x, a.y, a.z, a.closeCurrent !== false).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_container_close',
+      description: 'Close the currently open container/window.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      handler: () => win.close() },
+
+    { name: 'mcc_window_slots',
+      description: 'List all slots of the currently open container/window (container section first, then player inventory), plus the held item.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      handler: () => win.windowSlots() },
+
+    { name: 'mcc_container_deposit_item',
+      description: 'Move a named/counted item from the player inventory into the currently open container window.',
+      inputSchema: { type: 'object',
+        properties: {
+          itemType: { type: 'string', description: 'Item type/name (e.g. stone) or numeric id' },
+          count: { type: 'integer', description: 'How many to deposit (optional)' },
+        }, required: ['itemType'] },
+      handler: (a) => win.deposit(a.itemType, a.count).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_container_withdraw_item',
+      description: 'Move a named/counted item from the currently open container window into the player inventory.',
+      inputSchema: { type: 'object',
+        properties: {
+          itemType: { type: 'string', description: 'Item type/name (e.g. stone) or numeric id' },
+          count: { type: 'integer', description: 'How many to withdraw (optional)' },
+        }, required: ['itemType'] },
+      handler: (a) => win.withdraw(a.itemType, a.count).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_inventory_window_action',
+      description: 'Low-level click on a slot of the currently open window (mode 0=left click, 1=shift click, 2=number key). Prefer the higher-level deposit/withdraw tools.',
+      inputSchema: { type: 'object',
+        properties: { slot: { type: 'integer' }, mode: { type: 'integer', default: 0 } },
+        required: ['slot'] },
+      handler: (a) => win.clickWindowAction(a.slot, a.mode).then((r) => (r.success ? ok(r.data) : r)) },
   ]
 
   const byName = new Map(tools.map((t) => [t.name, t]))

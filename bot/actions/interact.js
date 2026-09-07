@@ -64,6 +64,7 @@ module.exports = function interactActions(botCtl) {
       if (target && target.type !== 0) {
         return { success: false, errorCode: 'invalid_state', data: { reason: 'target not air', block: target.name } }
       }
+      const pos = botCtl.pos()
       // Self-collision pre-check: the server refuses to place a block where the
       // player's own body stands. Player AABB ~ (0.6 wide, 1.8 tall) at feet.
       if (pos) {
@@ -73,7 +74,6 @@ module.exports = function interactActions(botCtl) {
         }
       }
       // Early reach check (server enforces it too; fail fast with a clear code).
-      const pos = botCtl.pos()
       if (pos && Math.hypot(pos.x - (tx + 0.5), pos.y - (ty + 0.5), pos.z - (tz + 0.5)) > 5.0) {
         return { success: false, errorCode: 'too_far', data: { distance: Math.hypot(pos.x - (tx + 0.5), pos.y - (ty + 0.5), pos.z - (tz + 0.5)), max: 5.0 } }
       }

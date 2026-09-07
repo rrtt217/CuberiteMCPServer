@@ -42,6 +42,8 @@ See `docs/baseline-mcc-tools.md` for the MCC surface this mirrors.
 SessionStatus: `ping`, `mcc_session_status`, `mcc_server_info`,
 `mcc_player_state`, `mcc_player_stats`, `mcc_world_state`
 ChatAndCommands: `mcc_send_chat`, `mcc_chat_history`
+Windows/GUI: `mcc_container_open_at`, `mcc_window_slots`, `mcc_container_deposit_item`,
+`mcc_container_withdraw_item`, `mcc_inventory_window_action`, `mcc_container_close`
 Movement: `mcc_look_at`, `mcc_look_direction`, `mcc_toggle_sprint`,
 `mcc_toggle_sneak`, `mcc_change_hotbar_slot`, `mcc_move_to`, `mcc_respawn`
 Inventory: `mcc_inventory_snapshot`, `mcc_inventory_search`, `mcc_select_item`
@@ -73,3 +75,16 @@ held item at the target; `mcc_dig_block` digs one. Two server-side constraints t
   is in the default group, so place/dig only work outside that radius.
 - **Self-collision**: the server refuses to place a block where the bot's own
   body stands; the tool pre-checks this and returns a clear error.
+## GUI / container windows
+
+`mcc_container_open_at` opens any container block (chest, furnace, crafting table, hopper,
+dispenser, ...) and subsequent tools operate on the opened window: `mcc_window_slots`
+lists its slots (container section then player section), `mcc_container_deposit_item` /
+`mcc_container_withdraw_item` move items, `mcc_inventory_window_action` is the low-level
+click, `mcc_container_close` closes.
+
+Note: Cuberite processes window clicks and broadcasts slot updates but never sends the
+Confirm Transaction (0x33) response on 1.8; the bot self-confirms locally
+(`window.requiresConfirmation = false`), so window operations are fast and non-blocking.
+Give items to the bot BEFORE opening a window (server-side gives mid-window don't refresh
+the open window's player section).
