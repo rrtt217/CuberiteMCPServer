@@ -1,6 +1,11 @@
 -- mcc.lua
 -- MCC (Minecraft Console Client) lifecycle management.
 --
+-- DEPRECATED: the mineflayer bot (bot.lua + bot/) is the default engine and
+-- covers the full Cuberite protocol range (1.8 - 1.12.2) incl. 1.9+ items.
+-- This module is kept only as a manual fallback: flip [Engine] Engine = mcc
+-- in config.ini to use it. See docs/version-compat-matrix.md.
+--
 -- Extracted from main.lua so the MCP server core stays focused on HTTP/JSON
 -- dispatch. This module owns the MCC child process: it builds the launch
 -- command, starts/stops the process, and reports status.

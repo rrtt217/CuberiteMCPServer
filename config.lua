@@ -10,11 +10,15 @@ local g_Defaults = {
 	ServerVersion = "0.1",
 	-- MCP protocol version advertised.
 	ProtocolVersion = "2025-06-18",
-	-- Bot engine: "mcc" (Minecraft Console Client, legacy) or "mineflayer".
-	-- Default stays "mcc" until the mineflayer path is battle-tested (see
-	-- docs/handoff-mineflayer-migration.md).
-	Engine = "mcc",
-	-- MCC (Minecraft Console Client) integration.
+	-- Bot engine: "mineflayer" (default) or "mcc".
+	-- mineflayer covers the full Cuberite protocol range (1.8 - 1.12.2, needs
+	-- the prismarine-chunk patch in bot/patches). "mcc" (Minecraft Console
+	-- Client) is DEPRECATED and kept only as a manual fallback; see
+	-- docs/handoff-mineflayer-migration.md and docs/version-compat-matrix.md.
+	Engine = "mineflayer",
+	-- MCC (Minecraft Console Client) integration. DEPRECATED - fallback engine
+	-- only; the mineflayer bot is the default. Kept for manual rollback via
+	-- [Engine] Engine = mcc.
 	MCC = {
 		Enabled = false,
 		AutoStart = true,  -- when Enabled, launch MCC automatically on plugin init
@@ -31,14 +35,22 @@ local g_Defaults = {
 	Bot = {
 		Enabled = false,
 		AutoStart = true,      -- when Enabled, launch the bot on plugin init
-		NodePath = "",
-		BotDir = "",
+		NodePath = "",          -- empty = use "node" from PATH
+		BotDir = "bot",         -- relative to the plugin folder (resolved at load)
 		Username = "TestBot",
 		RandomUsername = true,
 		ServerHost = "127.0.0.1",
 		ServerPort = 25568,
-		MinecraftVersion = "1.8.9",  -- pinned: Cuberite chunk block data works at 1.8.9
+		MinecraftVersion = "1.12.2",  -- max Cuberite protocol; 1.9+ chunks need the prismarine-chunk patch
 		McpPort = 33333,
+	},
+	-- Void-fall loop guard (HOOK_PLAYER_MOVING). Off by default: the mineflayer
+	-- engine respawns cleanly and never falls into the void; the guard exists
+	-- for the deprecated MCC engine and for broken terrain edge cases.
+	VoidGuard = {
+		Enabled = false,
+		VoidY = 40,
+		SafeY = 74,
 	},
 }
 
@@ -85,6 +97,12 @@ function LoadMCPConfig(a_PluginFolder)
 		ini:SetValue("Bot", "McpPort", tostring(g_Defaults.Bot.McpPort))
 		ini:WriteFile(path)
 	end
+	if isNew or ini:GetValue("VoidGuard", "Enabled", "") == "" then
+		ini:SetValue("VoidGuard", "Enabled", g_Defaults.VoidGuard.Enabled and "true" or "false")
+		ini:SetValue("VoidGuard", "VoidY", tostring(g_Defaults.VoidGuard.VoidY))
+		ini:SetValue("VoidGuard", "SafeY", tostring(g_Defaults.VoidGuard.SafeY))
+		ini:WriteFile(path)
+	end
 
 	g_MCPConfig.Port = tonumber(ini:GetValue("Network", "Port", tostring(g_Defaults.Port))) or g_Defaults.Port
 	g_MCPConfig.ServerName = ini:GetValue("Identity", "ServerName", g_Defaults.ServerName)
@@ -127,6 +145,41 @@ function LoadMCPConfig(a_PluginFolder)
 	g_MCPConfig.Bot.ServerPort = tonumber(ini:GetValue("Bot", "ServerPort", tostring(g_Defaults.Bot.ServerPort))) or g_Defaults.Bot.ServerPort
 	g_MCPConfig.Bot.MinecraftVersion = ini:GetValue("Bot", "MinecraftVersion", g_Defaults.Bot.MinecraftVersion)
 	g_MCPConfig.Bot.McpPort = tonumber(ini:GetValue("Bot", "McpPort", tostring(g_Defaults.Bot.McpPort))) or g_Defaults.Bot.McpPort
+
+	-- VoidGuard configuration (consolidated here from settings.ini).
+	g_MCPConfig.VoidGuard = {}
+	g_MCPConfig.VoidGuard.Enabled = ini:GetValue("VoidGuard", "Enabled", "false"):lower() == "true"
+	g_MCPConfig.VoidGuard.VoidY = tonumber(ini:GetValue("VoidGuard", "VoidY", tostring(g_Defaults.VoidGuard.VoidY))) or g_Defaults.VoidGuard.VoidY
+	g_MCPConfig.VoidGuard.SafeY = tonumber(ini:GetValue("VoidGuard", "SafeY", tostring(g_Defaults.VoidGuard.SafeY))) or g_Defaults.VoidGuard.SafeY
+
+	-- Resolve relative paths against the plugin folder so config examples can
+	-- stay portable (e.g. BotDir = bot, MCC Path = ../MinecraftConsoleClient).
+	-- Absolute paths (starting with "/") and empty values pass through.
+	local function ResolvePath(a_Path)
+		if (a_Path == "") or a_Path:match("^/") then
+			return a_Path
+		end
+		return a_PluginFolder .. "/" .. a_Path
+	end
+	g_MCPConfig.MCC.Path = ResolvePath(g_MCPConfig.MCC.Path)
+	g_MCPConfig.MCC.WorkDir = ResolvePath(g_MCPConfig.MCC.WorkDir)
+
+	-- NodePath: empty -> "node" on PATH; bare names (no slash) also resolve
+	-- via PATH; path-like values resolve against the plugin folder. The
+	-- server launches the bot via os.execute (CWD = server dir), which cannot
+	-- resolve plugin-relative paths itself, so everything becomes absolute.
+	local function ResolveExecutable(a_Path)
+		if (a_Path == "") or a_Path:match("^/") or not a_Path:match("/") then
+			return a_Path
+		end
+		return a_PluginFolder .. "/" .. a_Path
+	end
+	local np = g_MCPConfig.Bot.NodePath
+	if np == "" then
+		np = "node"  -- assume node is on PATH
+	end
+	g_MCPConfig.Bot.NodePath = ResolveExecutable(np)
+	g_MCPConfig.Bot.BotDir = ResolvePath(g_MCPConfig.Bot.BotDir)
 end
 
 function IsIPAllowed(a_RemoteIP)

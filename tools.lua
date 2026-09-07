@@ -372,10 +372,11 @@ local g_Tools = {
 
 	----------------------------------------------------------------------
 	-- MCC (Minecraft Console Client) management tools
+	-- DEPRECATED: fallback engine only; use the mineflayer bot (below).
 	----------------------------------------------------------------------
 	{
 		name = "mcc_status",
-		description = "Return the status of the MCC (Minecraft Console Client) bot managed by this plugin. Shows whether MCC is enabled, running, its PID, username, and MCP port.",
+		description = "[DEPRECATED fallback] Return the status of the MCC (Minecraft Console Client) bot managed by this plugin. Shows whether MCC is enabled, running, its PID, username, and MCP port. Prefer the mineflayer bot tools (bot_* / mcc_* via the bot).",
 		inputSchema = { type = "object", properties = {}, required = {} },
 		handler = function(a_World, a_Args)
 			local status = GetMCCStatus()
@@ -384,7 +385,7 @@ local g_Tools = {
 	},
 	{
 		name = "mcc_start",
-		description = "Start (summon) the MCC (Minecraft Console Client) bot managed by this plugin. Launches MCC as a background child process using the configured settings. Pass random_name='force' to always randomize the bot username suffix — this also terminates any running MCC first so a fresh player is summoned. Pass random_name='fixed' to use the base username. With no random_name, the RandomUsername config is honored and the call does nothing if MCC is already running.",
+		description = "[DEPRECATED fallback] Start (summon) the MCC (Minecraft Console Client) bot managed by this plugin. Launches MCC as a background child process using the configured settings. Pass random_name='force' to always randomize the bot username suffix — this also terminates any running MCC first so a fresh player is summoned. Pass random_name='fixed' to use the base username. With no random_name, the RandomUsername config is honored and the call does nothing if MCC is already running. Prefer bot_start (mineflayer).",
 		inputSchema = {
 			type = "object",
 			properties = {
@@ -403,7 +404,7 @@ local g_Tools = {
 	},
 	{
 		name = "mcc_stop",
-		description = "Stop (terminate) the running MCC (Minecraft Console Client) bot managed by this plugin. Sends SIGTERM, escalates to SIGKILL if the process does not exit within about 1.5 seconds, waits for it to die, then clears the tracked PID. Does nothing if MCC is not running.",
+		description = "[DEPRECATED fallback] Stop (terminate) the running MCC (Minecraft Console Client) bot managed by this plugin. Sends SIGTERM, escalates to SIGKILL if the process does not exit within about 1.5 seconds, waits for it to die, then clears the tracked PID. Does nothing if MCC is not running. Prefer bot_stop (mineflayer).",
 		inputSchema = { type = "object", properties = {}, required = {} },
 		handler = function(a_World, a_Args)
 			local ok, msg = StopMCC()
@@ -412,7 +413,7 @@ local g_Tools = {
 	},
 	{
 		name = "mcc_restart",
-		description = "Restart the MCC (Minecraft Console Client) bot managed by this plugin. Stops the running bot (if any) and starts a fresh one. Useful after changing MCC configuration. Pass random_name='force' to always randomize the bot username suffix, or 'fixed' to use the base username, overriding the RandomUsername config for the new launch.",
+		description = "[DEPRECATED fallback] Restart the MCC (Minecraft Console Client) bot managed by this plugin. Stops the running bot (if any) and starts a fresh one. Useful after changing MCC configuration. Pass random_name='force' to always randomize the bot username suffix, or 'fixed' to use the base username, overriding the RandomUsername config for the new launch. Prefer bot_restart (mineflayer).",
 		inputSchema = {
 			type = "object",
 			properties = {

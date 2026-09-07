@@ -98,13 +98,26 @@ local function StartMCPServer()
 		end,
 	}
 	local srv = cNetwork:Listen(g_MCPConfig.Port, listenCallbacks)
-	if not srv:IsListening() then
-		LOGWARNING("[MCP] Failed to listen on port " .. g_MCPConfig.Port)
-		return false, "listen failed"
+	if srv:IsListening() then
+		g_ServerHandle = srv
+		LOG("[MCP] Listening on port " .. g_MCPConfig.Port .. " (loopback only by default)")
+		return true, "listening on " .. g_MCPConfig.Port
 	end
-	g_ServerHandle = srv
-	LOG("[MCP] Listening on port " .. g_MCPConfig.Port .. " (loopback only by default)")
-	return true, "listening on " .. g_MCPConfig.Port
+	-- Retry a few times: right after a plugin reload the previous port may
+	-- still be in TIME_WAIT and a fresh bind fails with "Address already in
+	-- use" until it clears.
+	for attempt = 1, 6 do
+		LOGWARNING("[MCP] Listen on port " .. g_MCPConfig.Port .. " failed, retrying in 1s (attempt " .. attempt .. "/6)")
+		os.execute("sleep 1")
+		srv = cNetwork:Listen(g_MCPConfig.Port, listenCallbacks)
+		if srv:IsListening() then
+			g_ServerHandle = srv
+			LOG("[MCP] Listening on port " .. g_MCPConfig.Port .. " (after retry)")
+			return true, "listening on " .. g_MCPConfig.Port
+		end
+	end
+	LOGWARNING("[MCP] Failed to listen on port " .. g_MCPConfig.Port)
+	return false, "listen failed"
 end
 
 local function StopMCPServer()
@@ -112,6 +125,10 @@ local function StopMCPServer()
 		g_ServerHandle:Close()
 		g_ServerHandle = nil
 		LOG("[MCP] Stopped listening")
+		-- Give the kernel a moment to release the port (TIME_WAIT) so a quick
+		-- plugin reload can re-bind without "Address already in use" (Cuberite
+		-- does not set SO_REUSEADDR on the listen socket).
+		os.execute("sleep 1")
 		return true, "stopped"
 	end
 	return false, "not listening"
@@ -165,7 +182,7 @@ function Initialize(a_Plugin)
 	dofile(g_PluginFolder .. "/tools.lua")
 	dofile(g_PluginFolder .. "/void_guard.lua")
 
-	-- Void-fall loop guard for MCC bots and players (settings.ini [VoidGuard]).
+	-- Void-fall loop guard (config.ini [VoidGuard], disabled by default).
 	InitVoidGuard()
 
 	-- Register console commands via the shared InfoReg helper.

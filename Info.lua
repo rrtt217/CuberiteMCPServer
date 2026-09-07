@@ -9,9 +9,9 @@ g_PluginInfo =
 	Date = "2026-07-27",
 	Description = [[Exposes Cuberite as an MCP (Model Context Protocol) server over
 		Streamable HTTP, so LLM hosts can call server tools. Includes a configurable
-		void-fall guard (HOOK_PLAYER_MOVING) that protects MCC bots and players from
-		death/void loops (settings.ini). Bot engine selection via [Engine] Engine
-		(mcc | mineflayer).]],
+		void-fall guard (HOOK_PLAYER_MOVING, config.ini [VoidGuard], off by default).
+		Bot engine selection via [Engine] Engine (mineflayer default | mcc
+		deprecated fallback). All plugin config lives in config.ini.]],
 
 	Commands =
 	{
@@ -58,7 +58,7 @@ g_PluginInfo =
 			{
 				start =
 				{
-					HelpString = "Start the MCC (Minecraft Console Client) bot",
+					HelpString = "Start the MCC bot [DEPRECATED: fallback engine]",
 					Handler = HandleConsoleMCC,
 					ParameterCombinations =
 					{
@@ -67,7 +67,7 @@ g_PluginInfo =
 				},
 				stop =
 				{
-					HelpString = "Stop the running MCC bot",
+					HelpString = "Stop the running MCC bot [DEPRECATED: fallback engine]",
 					Handler = HandleConsoleMCC,
 					ParameterCombinations =
 					{
@@ -76,7 +76,7 @@ g_PluginInfo =
 				},
 				restart =
 				{
-					HelpString = "Restart the MCC bot",
+					HelpString = "Restart the MCC bot [DEPRECATED: fallback engine]",
 					Handler = HandleConsoleMCC,
 					ParameterCombinations =
 					{
@@ -85,7 +85,7 @@ g_PluginInfo =
 				},
 				status =
 				{
-					HelpString = "Report MCC bot status",
+					HelpString = "Report MCC bot status [DEPRECATED: fallback engine]",
 					Handler = HandleConsoleMCC,
 					ParameterCombinations =
 					{

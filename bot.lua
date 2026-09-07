@@ -70,11 +70,16 @@ local function BuildBotCommand(a_Opts)
 	local cfg = g_MCPConfig.Bot
 	local nodePath = cfg.NodePath
 	local botDir = cfg.BotDir
+	-- Defense in depth: config.lua already resolves defaults ("node" for the
+	-- executable, plugin-folder-relative for BotDir), but keep sane fallbacks
+	-- in case this module is used without LoadMCPConfig.
 	if nodePath == "" then
-		return nil, "Bot.NodePath is not configured"
+		nodePath = "node"
+		LOG("[MCP] Bot.NodePath empty, using 'node' from PATH")
 	end
 	if botDir == "" then
-		return nil, "Bot.BotDir is not configured"
+		botDir = g_PluginFolder .. "/bot"
+		LOG("[MCP] Bot.BotDir empty, defaulting to plugin folder /bot")
 	end
 
 	local username = cfg.Username

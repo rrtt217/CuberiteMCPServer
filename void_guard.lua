@@ -35,9 +35,14 @@
 -- cycle cannot flood the console.
 --
 -- Exposed globals (used by main.lua):
---   InitVoidGuard() -> (ok, msg)  read settings.ini and register the hooks if enabled
+--   InitVoidGuard() -> (ok, msg)  read config.ini [VoidGuard] and register hooks if enabled
+--
+-- NOTE: Off by default. The mineflayer engine respawns cleanly and never
+-- falls into the void, so this guard is only needed when running the
+-- deprecated MCC engine or when terrain/mod bugs produce embedded-player
+-- stuck loops. Enable via config.ini [VoidGuard] Enabled=true.
 
-local g_Enabled      = true   -- master switch, from settings.ini [VoidGuard] Enabled
+local g_Enabled      = false  -- master switch, from config.ini [VoidGuard] Enabled
 local g_VoidY        = 40     -- below this Y an embedded player is rescued (configurable)
 local g_SafeY        = 74     -- the Y the player is pulled back up to (configurable)
 local g_NoReturnY    = -500   -- past this the server handles the player itself; we stand down
@@ -159,27 +164,17 @@ end
 -- Module entry point (called from main.lua Initialize)
 ----------------------------------------------------------------------
 
--- Read settings.ini ([VoidGuard] section) and register the hooks when enabled.
--- Defaults are written into settings.ini on first run, like config.lua does.
+-- Read config.ini ([VoidGuard] section, consolidated from settings.ini) and
+-- register the hooks when enabled. Default is disabled (Enabled=false).
 -- @return boolean ok, string msg
 function InitVoidGuard()
-	local ini = cIniFile()
-	local path = g_PluginFolder .. "/settings.ini"
-	ini:ReadFile(path)
-	-- NB: cIniFile:GetValueSetB does not parse "true"/"false" correctly in
-	-- this Cuberite build (it returned false even for Enabled=true), so read
-	-- the boolean as a string like config.lua does. The default is only
-	-- written when the key is missing, so first-run users get Enabled=true.
-	if ini:GetValue("VoidGuard", "Enabled", "") == "" then
-		ini:SetValue("VoidGuard", "Enabled", "true")
-	end
-	g_Enabled = ini:GetValue("VoidGuard", "Enabled", "true"):lower() == "true"
-	g_VoidY   = ini:GetValueSetI("VoidGuard", "VoidY", 40)
-	g_SafeY   = ini:GetValueSetI("VoidGuard", "SafeY", 74)
-	ini:WriteFile(path)
+	local vg = g_MCPConfig.VoidGuard or {}
+	g_Enabled = (vg.Enabled == true)
+	g_VoidY   = vg.VoidY or 40
+	g_SafeY   = vg.SafeY or 74
 
 	if not g_Enabled then
-		LOG("[VoidGuard] disabled in settings.ini (Enabled=false)")
+		LOG("[VoidGuard] disabled (config.ini [VoidGuard] Enabled=false)")
 		return true, "void guard disabled by config"
 	end
 
