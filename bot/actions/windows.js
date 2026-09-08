@@ -46,7 +46,18 @@ module.exports = function windowActions(botCtl) {
       try {
         await b.lookAt(block.position.offset(0.5, 0.5, 0.5))
         await sleep(80)
-        const window = await b.openContainer(block)
+        // mineflayer 4.38 openContainer only accepts chest-like blocks; the
+        // crafting table must be activated directly (the path bot.craft uses).
+        let window
+        if (block.name === 'crafting_table') {
+          b.activateBlock(block)
+          window = await new Promise((res, rej) => {
+            const timer = setTimeout(() => rej(new Error('windowOpen timeout')), 6000)
+            b.once('windowOpen', (w) => { clearTimeout(timer); res(w) })
+          })
+        } else {
+          window = await b.openContainer(block)
+        }
         // Cuberite (1.8) processes window clicks and broadcasts slot updates but
         // never sends the Confirm Transaction (0x33) response that mineflayer
         // waits for by default; self-confirm locally instead (requiresConfirmation
@@ -112,37 +123,16 @@ module.exports = function windowActions(botCtl) {
       return { success: true, data: { slot: s, mouseButton: mb, clickMode: cm } }
     },
 
-    // Take a crafting result from slot 0 of the current window. Cuberite only
-    // crafts when the click packet carries the expected result item, so we
-    // stage a synthetic preview client-side (same trick mineflayer's craft
-    // uses) and then left-click slot 0. itemType = name or numeric id.
-    async craftTake(itemType) {
-      const b = assertOnline()
-      if (!b) return { success: false, errorCode: 'bot_offline' }
-      const w = activeWindow()
-      if (!w) return { success: false, errorCode: 'no_window_open' }
-      let typeId = null
-      const it = String(itemType || '')
-      if (/^\d+$/.test(it)) { typeId = Number(it) }
-      else if (b.registry && b.registry.itemsByName && b.registry.itemsByName[it]) { typeId = b.registry.itemsByName[it].id }
-      if (typeId === null) return { success: false, errorCode: 'invalid_args', data: { itemType } }
-      try {
-        const Item = require('prismarine-item')(b.registry)
-        w.updateSlot(0, new Item(typeId, 1, 0))
-        await b.clickWindow(0, 0, 0)
-      } catch (e) {
-        return { success: false, errorCode: 'take_failed', data: { error: e.message } }
-      }
-      await sleep(150)
-      return { success: true, data: { itemType: it, slot: 0 } }
-    },
-
     // Deposit a named/counted item from the player inventory into the window.
     async deposit(itemType, count) {
       const b = assertOnline()
       if (!b) return { success: false, errorCode: 'bot_offline' }
       const w = activeWindow()
       if (!w) return { success: false, errorCode: 'no_window_open' }
+      // Crafting stations are not containers: deposit/withdraw are meaningless.
+      if (w.slots && w.slots.length === 46) {
+        return { success: false, errorCode: 'not_a_container', data: { hint: 'crafting table is a crafting station, not a container; use mcc_inventory_window_action to fill the grid and click slot 0 for the result, or use mcc_craft' } }
+      }
       const it = String(itemType)
       const n = (count === undefined || count === null) ? null : Number(count)
       // resolve name -> numeric type using the bot's registry
@@ -171,6 +161,9 @@ module.exports = function windowActions(botCtl) {
     async withdraw(itemType, count) {
       const w = activeWindow()
       if (!w) return { success: false, errorCode: 'no_window_open' }
+      if (w.slots && w.slots.length === 46) {
+        return { success: false, errorCode: 'not_a_container', data: { hint: 'crafting table is a crafting station, not a container; withdraw only applies to chest-like containers' } }
+      }
       const it = String(itemType)
       const n = (count === undefined || count === null) ? null : Number(count)
       let typeId = null

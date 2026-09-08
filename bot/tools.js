@@ -265,11 +265,6 @@ function buildRegistry(botCtl) {
         }, required: ['itemType'] },
       handler: (a) => craft.craft(a.itemType, a.count, a.table).then((r) => (r.success ? ok(r.data) : r)) },
 
-    { name: 'mcc_craft_take',
-      description: 'Stage a synthetic result preview in slot 0 of the current crafting window and left-click it (Cuberite requires the expected item in the click).',
-      inputSchema: { type: 'object', properties: { itemType: { type: 'string' } }, required: ['itemType'] },
-      handler: (a) => win.craftTake(a.itemType).then((r) => (r.success ? ok(r.data) : r)) },
-
     { name: 'mcc_inventory_window_action',
       description: 'Low-level window click: slot + mouseButton (0=left,1=right) + clickMode (0=normal,1=shift). Prefer higher-level tools when possible.',
       inputSchema: { type: 'object',
