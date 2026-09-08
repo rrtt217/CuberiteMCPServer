@@ -1,0 +1,20 @@
+diff --git a/node_modules/mineflayer-collectblock/lib/Targets.js b/node_modules/mineflayer-collectblock/lib/Targets.js
+index 5ff587c..ae784f3 100644
+--- a/node_modules/mineflayer-collectblock/lib/Targets.js
++++ b/node_modules/mineflayer-collectblock/lib/Targets.js
+@@ -24,7 +24,14 @@ class Targets {
+     getClosest() {
+         let closest = null;
+         let distance = 0;
+-        for (const target of this.targets) {
++        // mineflayer despawns item entities when they merge stacks, leaving
++        // position undefined; prune those instead of crashing on .distanceTo.
++        for (let i = this.targets.length - 1; i >= 0; i--) {
++            const target = this.targets[i];
++            if (target == null || target.position == null || typeof target.position.distanceTo !== 'function') {
++                this.targets.splice(i, 1);
++                continue;
++            }
+             const dist = target.position.distanceTo(this.bot.entity.position);
+             if (closest == null || dist < distance) {
+                 closest = target;

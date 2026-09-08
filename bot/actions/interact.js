@@ -42,6 +42,22 @@ module.exports = function interactActions(botCtl) {
     async digBlock(x, y, z) {
       const b = assertOnline()
       if (!b) return { success: false, errorCode: 'bot_offline' }
+      // Auto-equip the best mining tool before digging. Picking up drops can
+      // silently swap the held item to a block (e.g. dirt), which makes b.dig()
+      // mine at bare-hand speed; re-equipping here keeps dig speed optimal.
+      try {
+        const tier = { golden: -1, wooden: 0, stone: 1, iron: 2, diamond: 3 }
+        const tools = (b.inventory.items() || []).filter((it) =>
+          /pickaxe|axe|shovel$/.test(it.name || ''))
+        if (tools.length) {
+          tools.sort((a, c) => (tier[a.name.replace(/_pickaxe$|_axe$|_shovel$/, '')] ?? -2) - (tier[c.name.replace(/_pickaxe$|_axe$|_shovel$/, '')] ?? -2))
+          const best = tools[tools.length - 1]
+          if (!b.heldItem || b.heldItem.slot !== best.slot) {
+            await b.equip(best, 'hand')
+            await sleep(60)
+          }
+        }
+      } catch (e) { /* tool auto-equip is best-effort */ }
       const vec3 = require('vec3')
       const block = b.blockAt(vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
       if (!block || block.type === 0) return { success: false, errorCode: 'invalid_state', data: { reason: 'air or missing' } }

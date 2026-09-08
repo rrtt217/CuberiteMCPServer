@@ -46,17 +46,21 @@ module.exports = function windowActions(botCtl) {
       try {
         await b.lookAt(block.position.offset(0.5, 0.5, 0.5))
         await sleep(80)
-        // mineflayer 4.38 openContainer only accepts chest-like blocks; the
-        // crafting table must be activated directly (the path bot.craft uses).
+        // mineflayer 4.38 openContainer only accepts modern (1.13+) chest-like
+        // window names; 1.12 names like crafting_table / furnace / enchanting_table
+        // are rejected ("containerToOpen is neither a block nor an entity"). For
+        // those, activate the block directly and wait for the window.
+        const chestlike = new Set(['chest', 'trapped_chest', 'ender_chest', 'dispenser',
+          'dropper', 'hopper', 'container', 'minecart_chest'])
         let window
-        if (block.name === 'crafting_table') {
+        if (block.name && chestlike.has(block.name)) {
+          window = await b.openContainer(block)
+        } else {
           b.activateBlock(block)
           window = await new Promise((res, rej) => {
             const timer = setTimeout(() => rej(new Error('windowOpen timeout')), 6000)
             b.once('windowOpen', (w) => { clearTimeout(timer); res(w) })
           })
-        } else {
-          window = await b.openContainer(block)
         }
         // Cuberite (1.8) processes window clicks and broadcasts slot updates but
         // never sends the Confirm Transaction (0x33) response that mineflayer
