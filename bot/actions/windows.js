@@ -93,19 +93,48 @@ module.exports = function windowActions(botCtl) {
       }
     },
 
-    // Generic window click (slot index, mouse button 0-2).
-    async clickWindowAction(slot, mode) {
+    // Generic window click. mode maps to mouseButton when clickMode is not
+    // given (backwards compat); callers may pass clickMode explicitly.
+    async clickWindowAction(slot, mouseButton, clickMode) {
+      const b = assertOnline()
+      if (!b) return { success: false, errorCode: 'bot_offline' }
       const w = activeWindow()
       if (!w) return { success: false, errorCode: 'no_window_open' }
       const s = Number(slot)
-      const m = mode === undefined || mode === null ? 0 : Number(mode)
+      const mb = mouseButton === undefined || mouseButton === null ? 0 : Number(mouseButton)
+      const cm = clickMode === undefined || clickMode === null ? 0 : Number(clickMode)
       if (!Number.isInteger(s) || s < 0) return { success: false, errorCode: 'invalid_args', data: { slot } }
       try {
-        await w.click(s, m, null)
+        await b.clickWindow(s, mb, cm)
       } catch (e) {
         return { success: false, errorCode: 'click_failed', data: { error: e.message } }
       }
-      return { success: true, data: { slot: s, mode: m } }
+      return { success: true, data: { slot: s, mouseButton: mb, clickMode: cm } }
+    },
+
+    // Take a crafting result from slot 0 of the current window. Cuberite only
+    // crafts when the click packet carries the expected result item, so we
+    // stage a synthetic preview client-side (same trick mineflayer's craft
+    // uses) and then left-click slot 0. itemType = name or numeric id.
+    async craftTake(itemType) {
+      const b = assertOnline()
+      if (!b) return { success: false, errorCode: 'bot_offline' }
+      const w = activeWindow()
+      if (!w) return { success: false, errorCode: 'no_window_open' }
+      let typeId = null
+      const it = String(itemType || '')
+      if (/^\d+$/.test(it)) { typeId = Number(it) }
+      else if (b.registry && b.registry.itemsByName && b.registry.itemsByName[it]) { typeId = b.registry.itemsByName[it].id }
+      if (typeId === null) return { success: false, errorCode: 'invalid_args', data: { itemType } }
+      try {
+        const Item = require('prismarine-item')(b.registry)
+        w.updateSlot(0, new Item(typeId, 1, 0))
+        await b.clickWindow(0, 0, 0)
+      } catch (e) {
+        return { success: false, errorCode: 'take_failed', data: { error: e.message } }
+      }
+      await sleep(150)
+      return { success: true, data: { itemType: it, slot: 0 } }
     },
 
     // Deposit a named/counted item from the player inventory into the window.
@@ -168,7 +197,7 @@ module.exports = function windowActions(botCtl) {
       const w = activeWindow()
       if (!w) return { success: false, errorCode: 'no_window_open' }
       try {
-        w.close()
+        if (typeof w.close === 'function') { w.close() } else { b.closeWindow(w) }
       } catch (e) {
         return { success: false, errorCode: 'close_failed', data: { error: e.message } }
       }

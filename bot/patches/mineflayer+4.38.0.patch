@@ -1,0 +1,30 @@
+diff --git a/node_modules/mineflayer/lib/plugins/inventory.js b/node_modules/mineflayer/lib/plugins/inventory.js
+index 264b5d6..b4376cb 100644
+--- a/node_modules/mineflayer/lib/plugins/inventory.js
++++ b/node_modules/mineflayer/lib/plugins/inventory.js
+@@ -637,20 +637,14 @@ function inject (bot, { hideErrors }) {
+     }
+ 
+     if (bot.supportFeature('transactionPacketExists')) {
+-      const response = once(bot, `confirmTransaction${actionId}`)
+-      if (!window.transactionRequiresConfirmation(click)) {
+-        confirmTransaction(window.id, actionId, true)
+-      }
+-      const [success] = await withTimeout(response, WINDOW_TIMEOUT)
+-        .catch(() => {
+-          throw new Error(`Server didn't respond to transaction for clicking on slot ${slot} on window with id ${window?.id}.`)
+-        })
+-      if (!success) {
+-        throw new Error(`Server rejected transaction for clicking on slot ${slot}, on window with id ${window?.id}.`)
+-      }
++      // Cuberite never sends Transaction (0x33) responses — self-confirm
++      // every click immediately so bot.craft / window clicks don't hang.
++      confirmTransaction(window.id, actionId, true)
+     } else {
+       await waitForWindowUpdate(window, slot)
+     }
++    // Cuberite: let the server push set_slot updates before the next click.
++    await sleep(80)
+   }
+ 
+   async function putAway (slot) {

@@ -15,6 +15,8 @@ const interactActions = require('./actions/interact')
 const inventoryActions = require('./actions/inventory')
 const worldActions = require('./actions/world')
 const windowActions = require('./actions/windows')
+const craftActions = require('./actions/craft')
+const collectActions = require('./actions/collect')
 
 function ok(data) { return { text: JSON.stringify({ success: true, data: data }) } }
 function fail(errorCode, data) {
@@ -31,6 +33,8 @@ function buildRegistry(botCtl) {
   const inv = inventoryActions(botCtl)
   const world = worldActions(botCtl)
   const win = windowActions(botCtl)
+  const craft = craftActions(botCtl)
+  const collect = collectActions(botCtl)
 
   const tools = [
     { name: 'ping', description: 'Reachability probe; always available even when the bot is offline.',
@@ -102,10 +106,15 @@ function buildRegistry(botCtl) {
       handler: (a) => inv.changeHotbarSlot(a.slot).then((r) => (r.success ? ok(r.data) : r)) },
 
     { name: 'mcc_move_to',
-      description: 'Walk toward a target world coordinate (control-based movement).',
+      description: 'Pathfind toward a target world coordinate (A* via mineflayer-pathfinder).',
       inputSchema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' },
-        timeoutMs: { type: 'integer', default: 0 } }, required: ['x', 'y', 'z'] },
-      handler: (a) => move.moveTo(a.x, a.y, a.z).then((r) => (r.success ? r : r)) },
+        timeoutMs: { type: 'integer', default: 30000 } }, required: ['x', 'y', 'z'] },
+      handler: (a) => move.moveTo(a.x, a.y, a.z, { timeoutMs: a.timeoutMs }).then((r) => (r.success ? r : r)) },
+
+    { name: 'mcc_stop_movement',
+      description: 'Cancel any active pathfinder goal and stop control-state movement.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      handler: () => move.stopMovement() },
 
     { name: 'mcc_respawn',
       description: 'Send the respawn packet when the controlled player is dead.',
@@ -226,12 +235,32 @@ function buildRegistry(botCtl) {
         }, required: ['itemType'] },
       handler: (a) => win.withdraw(a.itemType, a.count).then((r) => (r.success ? ok(r.data) : r)) },
 
-    { name: 'mcc_inventory_window_action',
-      description: 'Low-level click on a slot of the currently open window (mode 0=left click, 1=shift click, 2=number key). Prefer the higher-level deposit/withdraw tools.',
+    { name: 'mcc_collect_drops',
+      description: 'Pathfind onto nearby dropped item entities (tight goal) so the server picks them up.',
+      inputSchema: { type: 'object', properties: { radius: { type: 'number', default: 12 }, maxItems: { type: 'integer', default: 20 } }, required: [] },
+      handler: (a) => collect.collectNearby({ radius: a.radius, maxItems: a.maxItems }).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_craft',
+      description: 'Craft an item using mineflayer recipes. Non-table recipes use the 2x2 inventory grid; table recipes require table:{x,y,z} of a placed crafting table (opened/closed automatically).',
       inputSchema: { type: 'object',
-        properties: { slot: { type: 'integer' }, mode: { type: 'integer', default: 0 } },
+        properties: {
+          itemType: { type: 'string' },
+          count: { type: 'integer', default: 1 },
+          table: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } } },
+        }, required: ['itemType'] },
+      handler: (a) => craft.craft(a.itemType, a.count, a.table).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_craft_take',
+      description: 'Stage a synthetic result preview in slot 0 of the current crafting window and left-click it (Cuberite requires the expected item in the click).',
+      inputSchema: { type: 'object', properties: { itemType: { type: 'string' } }, required: ['itemType'] },
+      handler: (a) => win.craftTake(a.itemType).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_inventory_window_action',
+      description: 'Low-level window click: slot + mouseButton (0=left,1=right) + clickMode (0=normal,1=shift). Prefer higher-level tools when possible.',
+      inputSchema: { type: 'object',
+        properties: { slot: { type: 'integer' }, mouseButton: { type: 'integer', default: 0 }, clickMode: { type: 'integer', default: 0 } },
         required: ['slot'] },
-      handler: (a) => win.clickWindowAction(a.slot, a.mode).then((r) => (r.success ? ok(r.data) : r)) },
+      handler: (a) => win.clickWindowAction(a.slot, a.mouseButton, a.clickMode).then((r) => (r.success ? ok(r.data) : r)) },
   ]
 
   const byName = new Map(tools.map((t) => [t.name, t]))

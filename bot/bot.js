@@ -4,6 +4,7 @@
 // (replace the bot instance — replaces MCC's "restart process with fresh identity").
 
 const mineflayer = require('mineflayer')
+const { pathfinder } = require('mineflayer-pathfinder')
 
 class BotHandle {
   constructor(cfg, log) {
@@ -51,6 +52,14 @@ class BotHandle {
       hideErrors: true,
     })
     this.bot = bot
+    try { bot.loadPlugin(pathfinder) } catch (e) { this.log('pathfinder load failed: ' + e.message) }
+    // Cuberite never sends Confirm Transaction (0x33) responses.  Monkey-patch
+    // every window (inventory + future container / crafting-table windows) so
+    // clickWindow never waits for a transaction -> never hangs.
+    try { bot.inventory.requiresConfirmation = false; bot.inventory.transactionRequiresConfirmation = () => false } catch (e) { /* ignore */ }
+    bot.on('windowOpen', (window) => {
+      try { window.requiresConfirmation = false; window.transactionRequiresConfirmation = () => false } catch (e) { /* ignore */ }
+    })
 
     bot.once('spawn', () => {
       this.state = 'online'
