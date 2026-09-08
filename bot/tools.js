@@ -106,10 +106,25 @@ function buildRegistry(botCtl) {
       handler: (a) => inv.changeHotbarSlot(a.slot).then((r) => (r.success ? ok(r.data) : r)) },
 
     { name: 'mcc_move_to',
-      description: 'Pathfind toward a target world coordinate (A* via mineflayer-pathfinder).',
+      description: 'Pathfind toward a target using an intent-based goal (A* via mineflayer-pathfinder). goalType: near (arrive within range, default 1) | xz (region-level, Y-agnostic, robust long-range) | block (stand ADJACENT to a block: chest/tables/furnaces) | face (enter dig/place/use range of a block and face it) | any (nearest of candidates; pass candidate coords in candidates[]). mode: scout (default, may dig/sprint) | walk (no digging/parkour, safe inside structures).',
       inputSchema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' },
+        goalType: { type: 'string', enum: ['near', 'xz', 'block', 'face', 'any'], default: 'near' },
+        range: { type: 'number', default: 1, description: 'Arrival tolerance; for face = reach distance (default 4.5)' },
+        mode: { type: 'string', enum: ['scout', 'walk'], default: 'scout' },
+        candidates: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' }, range: { type: 'number' } } }, description: 'Candidate targets for goalType=any' },
         timeoutMs: { type: 'integer', default: 30000 } }, required: ['x', 'y', 'z'] },
-      handler: (a) => move.moveTo(a.x, a.y, a.z, { timeoutMs: a.timeoutMs }).then((r) => (r.success ? r : r)) },
+      handler: (a) => move.moveTo(a.x, a.y, a.z, { timeoutMs: a.timeoutMs, goalType: a.goalType, range: a.range, mode: a.mode, candidates: a.candidates }).then((r) => (r.success ? r : r)) },
+
+    { name: 'mcc_can_reach',
+      description: 'Bounded reachability probe (one-shot A* with wall-clock budget). Returns status success | noPath | partial | timeout and an estimated path length/cost. Use before a long move to avoid wasting time on impossible goals.',
+      inputSchema: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' },
+        range: { type: 'number', default: 2 }, budgetMs: { type: 'integer', default: 1500 }, mode: { type: 'string', enum: ['scout', 'walk'], default: 'scout' } }, required: ['x', 'y', 'z'] },
+      handler: (a) => move.canReach(a.x, a.y, a.z, { range: a.range, budgetMs: a.budgetMs, mode: a.mode }) },
+
+    { name: 'mcc_path_status',
+      description: 'Reflect on the current pathfinder state: active goal type, isMoving / isMining / isBuilding, and current position. Use to diagnose why a move failed or is stuck.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      handler: () => move.pathStatus() },
 
     { name: 'mcc_stop_movement',
       description: 'Cancel any active pathfinder goal and stop control-state movement.',

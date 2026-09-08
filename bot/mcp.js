@@ -75,9 +75,12 @@ function makeServer(registry, log) {
     }
     if (method === 'notifications/initialized' || method === 'notifications/cancelled' ||
         method === 'notifications/tools/list_changed' || method === 'notifications/progress') {
-      // Notifications have no id and expect no response.
-      const hasId = id !== null
-      if (hasId) send(res, { jsonrpc: '2.0', id, result: {} })
+      // Standard MCP notifications are fire-and-forget, but our bridge client
+      // (mcp-mcc.mjs) AWAITS this POST and would otherwise sit on Node's
+      // requestTimeout (300s) before Node replies 408. Always answer with a
+      // minimal result so both await-ing and fire-and-forget clients unblock
+      // instantly. (id echo, or null for notifications.)
+      send(res, { jsonrpc: '2.0', id, result: {} })
       return
     }
     if (method === 'tools/list') {
