@@ -1,129 +1,129 @@
-# 用 mineflayer 替代 MCC 集成的可行性研究
+# Feasibility Study: Using mineflayer to Replace the MCC Integration
 
-- 分支：`research/mineflayer-feasibility`
-- 日期：2026-08-30
-- 调研对象：[PrismarineJS/mineflayer](https://github.com/PrismarineJS/mineflayer)
-- 现任方案：[Minecraft Console Client (MCC)](https://github.com/MCCTeam/Minecraft-Console-Client)
-- **结论：可行且推荐迁移**。mineflayer 能直接消除 MCC 的三大结构性痛点（信号处理、死亡状态损坏、配置臃肿），协议层对本场景（1.8–1.12.2 + 离线模式）无障碍；需先做 Cuberite 冒烟实测（官方从未验证过 Cuberite），现成 MCP 包装均不适配，需自写一层（约 1–2 天工作量）。
+- Branch: `research/mineflayer-feasibility`
+- Date: 2026-08-30
+- Subject of research: [PrismarineJS/mineflayer](https://github.com/PrismarineJS/mineflayer)
+- Current solution: [Minecraft Console Client (MCC)](https://github.com/MCCTeam/Minecraft-Console-Client)
+- **Conclusion: feasible, and migration is recommended**. mineflayer can directly eliminate MCC's three structural pain points (signal handling, corrupted death state, bloated configuration); the protocol layer presents no obstacle for this scenario (1.8–1.12.2 + offline mode); a Cuberite smoke test must be done first (Cuberite has never been officially validated), none of the ready-made MCP wrappers fit, so a thin layer needs to be written ourselves (about 1–2 days of work).
 
 ---
 
-## 1. 背景与现状
+## 1. Background and Current State
 
-### 1.1 当前 MCC 集成的三层管线（事实清单）
+### 1.1 The Current Three-Layer Pipeline of the MCC Integration (Fact List)
 
-对本仓库与 DSH preset 的实地检查确认，"MCC 集成"并不是一处代码，而是分布在三层的管线：
+An on-site inspection of this repository and the DSH preset confirms that the "MCC integration" is not one piece of code, but a pipeline spread across three layers:
 
-| 层 | 归属 | 现状 |
+| Layer | Owner | Current State |
 |---|---|---|
-| 进程生命周期 | **MCPServer 插件**（本仓库 Lua） | `mcc.lua`：`StartMCC/StopMCC/RestartMCC/GetMCCStatus`——io.popen 拉起子进程、fd 关闭 wrapper、pid 跟踪（`/proc/<pid>/cmdline` 防误杀）、信号梯（SIGTERM→SIGHUP→SIGUSR1→SIGKILL）、临时 ini 生成。`main.lua`：autostart（延迟 60 tick）与 `OnDisable` 清理。`tools.lua`：`mcc_start/stop/restart/status` 作为插件自己的 MCP 工具（:8765）。`Info.lua`：`mcc` 控制台命令。 |
-| bot 能力 + MCP 端点 | **MCC 本体**（85MB 单体二进制） | 实现游戏客户端并内嵌 MCP 服务器（`http://127.0.0.1:33333/mcp`），由 `mcc.lua` 写入的临时 ini 启用（`[ChatBot.McpServer]`）。插件 Lua 中**没有任何 bot 能力实现，也没有 MCP 转发**——插件只是进程保姆 + 配置生成器。 |
-| 会话桥（消费者） | **DSH cuberite preset**（`~/.dsh/.agent-presets/cuberite/`） | `mcp-mcc.mjs`（自愈型 MCP 客户端）：连 `:33333/mcp`，调 `tools/list` 自动发现工具并注册为会话的 `mcp__mcc__*`。它是**通用契约**——只认标准 MCP Streamable HTTP 端点，不知道对面是 MCC 还是别的。`mcp-cuberite` 桥连插件的 :8765。 |
+| Process lifecycle | **MCPServer plugin** (this repo's Lua) | `mcc.lua`: `StartMCC/StopMCC/RestartMCC/GetMCCStatus` — io.popen spawns the child process, fd-closing wrapper, pid tracking (`/proc/<pid>/cmdline` to prevent killing the wrong process), signal ladder (SIGTERM→SIGHUP→SIGUSR1→SIGKILL), temp ini generation. `main.lua`: autostart (delayed 60 ticks) and `OnDisable` cleanup. `tools.lua`: `mcc_start/stop/restart/status` as the plugin's own MCP tools (:8765). `Info.lua`: the `mcc` console command. |
+| bot capabilities + MCP endpoint | **MCC itself** (85MB monolithic binary) | Implements the game client and embeds an MCP server (`http://127.0.0.1:33333/mcp`), enabled by the temp ini written by `mcc.lua` (`[ChatBot.McpServer]`). The plugin's Lua contains **no bot capability implementation and no MCP forwarding** — the plugin is only a process babysitter + config generator. |
+| Session bridge (consumer) | **DSH cuberite preset** (`~/.dsh/.agent-presets/cuberite/`) | `mcp-mcc.mjs` (self-healing MCP client): connects to `:33333/mcp`, calls `tools/list` to auto-discover tools and register them as the session's `mcp__mcc__*`. It is a **generic contract** — it only recognizes standard MCP Streamable HTTP endpoints and does not know whether the other side is MCC or something else. The `mcp-cuberite` bridge connects to the plugin's :8765. |
 
-另有本仓库的周边配套：`void_guard.lua`（坠虚空守卫，HOOK_PLAYER_MOVING 冻结救援）、`config.lua` 的 `[MCC]` 段（Enabled/AutoStart/Path/Username/RandomUsername/ServerPort/MinecraftVersion/McpPort）。
+There is also the repository's supporting equipment: `void_guard.lua` (void-fall guard, HOOK_PLAYER_MOVING freeze rescue), and the `[MCC]` section of `config.lua` (Enabled/AutoStart/Path/Username/RandomUsername/ServerPort/MinecraftVersion/McpPort).
 
-### 1.2 MCC 痛点（迁移动机）
+### 1.2 MCC Pain Points (Migration Motivation)
 
-1. **信号处理**：MCC 忽略 SIGTERM/SIGINT/SIGQUIT，需要四级信号梯升级到 SIGKILL 才能可靠停止（`mcc.lua` `g_StopLadder`）。
-2. **死亡状态损坏**：bot 死亡后客户端状态损坏，触发坠虚空无法重生的卡死（无视落地），只能换随机用户名重启**整个进程**换新身份（`RandomUsername` + `void_guard.lua` 都是对症药）。
-3. **MCP 会话失效**：MCC 重启使旧 MCP 会话失效，报 -32001 直到重连——preset 桥被迫写成自愈型（`mcp-mcc.mjs` 检测该错误自动 re-initialize 重试）。
-4. **配置臃肿**：临时 ini + 用户主 ini 双轨（`mcc_temp.ini` 47KB），版本指定、BotOwners、TerrainAndMovements 等开关散落。
-5. **黑盒形态**：85MB 单体二进制，行为不可定制、问题不可在进程内修复，一切 workaround 都在进程外。
+1. **Signal handling**: MCC ignores SIGTERM/SIGINT/SIGQUIT, requiring a four-level signal ladder escalating to SIGKILL to stop it reliably (`mcc.lua` `g_StopLadder`).
+2. **Corrupted death state**: after the bot dies, the client state is corrupted, triggering a void-fall deadlock where respawn is impossible (it ignores landing); the only cure is restarting the **entire process** with a random username to obtain a new identity (`RandomUsername` + `void_guard.lua` are both symptomatic treatments).
+3. **MCP session invalidation**: restarting MCC invalidates the old MCP session, which reports -32001 until reconnection — the preset bridge was forced to be written as self-healing (`mcp-mcc.mjs` detects that error and automatically re-initializes and retries).
+4. **Bloated configuration**: dual-track of temp ini + the user's main ini (`mcc_temp.ini` 47KB), with the version specification, BotOwners, TerrainAndMovements and other switches scattered around.
+5. **Black-box form**: an 85MB monolithic binary whose behavior cannot be customized and whose problems cannot be fixed inside the process; every workaround lives outside the process.
 
-## 2. 本机环境核对（2026-08-30 实测）
+## 2. Local Environment Verification (measured 2026-08-30)
 
-| 项 | 现状 | 对迁移的意义 |
+| Item | Current State | Significance for the Migration |
 |---|---|---|
-| Node.js | v22.22.3（nvm） | 满足 mineflayer 4.38.0 的 `engines: node>=22` ✅ |
-| npm | 10.9.8 可用；沙箱（workspace-write）拒绝写 `~/.npm` 缓存 | 开发/安装时用 `--cache <workspace>/` 绕过即可，与运行时无关 ✅ |
-| mineflayer npm | latest 4.38.0（2026-08-27 发布，time.modified 2026-08-27） | 包存在且活跃 ✅ |
-| Cuberite 服务端 | 端口 25568（`settings.ini`）；版本由服务端解析（当前配置写 1.12.2） | mineflayer 原生支持 1.8–1.12.2 ✅，最终以实测为准 |
-| MCC 本体 | `/home/david/Cuberite/MinecraftConsoleClient`，85MB | 保留作回退（见 §6） |
-| 插件配置 | `config.ini`：MCC Enabled=true, AutoStart=false, RandomUsername=true | 迁移开关将沿用此文件模式 |
+| Node.js | v22.22.3 (nvm) | Satisfies mineflayer 4.38.0's `engines: node>=22` ✅ |
+| npm | 10.9.8 available; the sandbox (workspace-write) refuses to write the `~/.npm` cache | Using `--cache <workspace>/` during development/installation bypasses it; unrelated to runtime ✅ |
+| mineflayer npm | latest 4.38.0 (released 2026-08-27, time.modified 2026-08-27) | The package exists and is active ✅ |
+| Cuberite server | port 25568 (`settings.ini`); version parsed by the server (current config writes 1.12.2) | mineflayer natively supports 1.8–1.12.2 ✅; the actual measurement is what matters |
+| MCC itself | `/home/david/Cuberite/MinecraftConsoleClient`, 85MB | kept as fallback (see §6) |
+| Plugin config | `config.ini`: MCC Enabled=true, AutoStart=false, RandomUsername=true | The migration switch will follow this file's pattern |
 
-## 3. 调研发现（摘要）
+## 3. Research Findings (Summary)
 
-> 完整调研含全部来源链接，由联网调研完成；此处按结论压缩，关键来源内联。
+> The full research with all source links was done via online research; here it is compressed by conclusion, with key sources inlined.
 
-### 3.1 维护状态与版本支持 ✅
+### 3.1 Maintenance Status and Version Support ✅
 
-mineflayer 活跃维护：4.38.0（2026-08-27 发布），7387 stars，npm 月下载约 22.5 万，2026 年发版节奏稳定。README 明确支持 **Minecraft 1.8 到 1.21.11+**——1.8–1.12.2 老版本是其支持最久的路径。`version` 选项可不填（自动探测服务器版本）或显式指定。离线模式登录：`auth: 'offline'` + `username`，无需密码。来源：[repo](https://github.com/PrismarineJS/mineflayer)、[npm registry](https://registry.npmjs.org/mineflayer/latest)。
+mineflayer is actively maintained: 4.38.0 (released 2026-08-27), 7387 stars, about 225k monthly npm downloads, with a steady release cadence in 2026. The README explicitly supports **Minecraft 1.8 through 1.21.11+** — the old 1.8–1.12.2 versions are its longest-supported path. The `version` option can be omitted (the server version is auto-detected) or explicitly specified. Offline-mode login: `auth: 'offline'` + `username`, no password needed. Sources: [repo](https://github.com/PrismarineJS/mineflayer), [npm registry](https://registry.npmjs.org/mineflayer/latest).
 
-### 3.2 核心能力覆盖本场景全部需求 ✅
+### 3.2 Core Capabilities Cover All Requirements of This Scenario ✅
 
-依据官方 [docs/api.md](https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md)：
+Per the official [docs/api.md](https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md):
 
-| 本场景需求 | mineflayer API |
+| Scenario requirement | mineflayer API |
 |---|---|
-| 聊天与命令 | `bot.chat()`（聊天与 `/` 命令同一入口）、`bot.tabComplete()`、chat 事件 |
-| 移动 | `bot.setControlState()`（forward/back/left/right/jump/sprint/sneak）+ 官方插件 [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) |
-| 视角 | `bot.lookAt(point)` / `bot.look` / `bot.blockAtCursor` |
-| 右键交互 | `bot.activateBlock()`（开门/容器）、`bot.useOn(entity)`、`bot.placeBlock`、`bot.attack` |
-| 物品栏读写 | `bot.inventory`（Window）、`bot.heldItem`、`bot.equip/transfer/moveSlotItem`、`bot.openChest` |
-| 实体/方块查询 | `bot.entity`、`bot.entities`（id→entity map）、`bot.blockAt`、`bot.findBlocks`、`bot.canSeeBlock` |
-| 受伤/死亡/重生 | `'health'`/`'death'` 事件；**默认自动重生**（createBot 选项 `respawn` 默认 true），可手动 `bot.respawn()`；`bot.quit(reason)` 优雅断开 |
+| Chat and commands | `bot.chat()` (chat and `/` commands share one entry point), `bot.tabComplete()`, chat event |
+| Movement | `bot.setControlState()` (forward/back/left/right/jump/sprint/sneak) + official plugin [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) |
+| View | `bot.lookAt(point)` / `bot.look` / `bot.blockAtCursor` |
+| Right-click interaction | `bot.activateBlock()` (doors/containers), `bot.useOn(entity)`, `bot.placeBlock`, `bot.attack` |
+| Inventory read/write | `bot.inventory` (Window), `bot.heldItem`, `bot.equip/transfer/moveSlotItem`, `bot.openChest` |
+| Entity/block queries | `bot.entity`, `bot.entities` (id→entity map), `bot.blockAt`, `bot.findBlocks`, `bot.canSeeBlock` |
+| Damage/death/respawn | `'health'`/`'death'` events; **auto-respawn by default** (createBot option `respawn` defaults to true), manual `bot.respawn()`; `bot.quit(reason)` graceful disconnect |
 
-唯一风险点：[issue #3882](https://github.com/PrismarineJS/mineflayer/issues/3882) "Bot freezes after taking any damage"（open，仅 1.21.x + 4.37.0 报告）——与 MCC 的"受伤后状态损坏"同类，但 **1.8–1.12.2 老版本无此报告**。
+The only risk point: [issue #3882](https://github.com/PrismarineJS/mineflayer/issues/3882) "Bot freezes after taking any damage" (open; only reported on 1.21.x + 4.37.0) — the same category as MCC's "state corruption after damage", but **there is no such report for the old 1.8–1.12.2 versions**.
 
-### 3.3 现成 MCP 包装均不适配，需自写 ✅
+### 3.3 Ready-Made MCP Wrappers Do Not Fit; We Must Write Our Own ✅
 
-- 最热门 [yuniko-software/minecraft-mcp-server](https://github.com/yuniko-software/minecraft-mcp-server)（712 stars）：锁定 1.21.11 且走 stdio → 老版本 + HTTP 场景不可用
-- [gerred/mcpmc](https://github.com/gerred/mcpmc)：2024-12 停更约 2 年，stdio，月下载 55
-- 其余（minecraft-bot-mcp、mcpflow 等）：月下载 <60 或自称 early prototype
+- The most popular [yuniko-software/minecraft-mcp-server](https://github.com/yuniko-software/minecraft-mcp-server) (712 stars): locked to 1.21.11 and uses stdio → not usable for the old versions + HTTP scenario
+- [gerred/mcpmc](https://github.com/gerred/mcpmc): unmaintained for about 2 years since 2024-12, stdio, 55 monthly downloads
+- The rest (minecraft-bot-mcp, mcpflow, etc.): monthly downloads <60 or self-described as early prototype
 
-自写工作量：mineflayer API 与需求逐项一一对应，`node:http` 包一层 JSON-RPC、暴露约 15–20 个工具，约 **300–600 行、1–2 个工作日**；改用 `@modelcontextprotocol/sdk` 的 Streamable HTTP 再加约 0.5–1 天。"换身份重连"可做成轻量 API（关旧 bot → createBot 新实例），比 MCC 整进程重启干净得多。
+Self-written effort: the mineflayer API maps one-to-one with the requirements; wrap a JSON-RPC layer with `node:http` and expose about 15–20 tools, roughly **300–600 lines, 1–2 working days**; switching to `@modelcontextprotocol/sdk`'s Streamable HTTP adds about 0.5–1 day. "Reconnect with a new identity" can be made into a lightweight API (close the old bot → createBot a new instance), much cleaner than MCC's whole-process restart.
 
-### 3.4 进程管理正中痛点 ✅
+### 3.4 Process Management Hits the Pain Points Squarely ✅
 
-mineflayer 是库，信号行为由 Node 运行时决定：Node 官方文档明确非 Windows 平台 **SIGTERM/SIGINT 有默认 handler，收到即退出**——直接消除 MCC 忽略 SIGTERM 需要信号梯升级到 SIGKILL 的问题；如需优雅退出，脚本内装 listener 先 `bot.quit()` 再 `process.exit()`。单 bot 常驻轻量（30+ bot 才明显吃 CPU，调低 view distance 可缓解）。启动就绪以 `'spawn'` 事件为标志，本地 Cuberite 预计 1–5 秒量级（需实测，主要受 connection throttle 影响）。来源：[Node process docs](https://nodejs.org/api/process.html#signal-events)。
+mineflayer is a library, so signal behavior is decided by the Node runtime: the official Node docs state that non-Windows platforms have **default handlers for SIGTERM/SIGINT that exit upon receipt** — directly eliminating MCC's ignoring of SIGTERM, which required the signal ladder escalating to SIGKILL; for a graceful exit, install a listener in the script that calls `bot.quit()` first and then `process.exit()`. A single resident bot is lightweight (CPU is only noticeably consumed with 30+ bots; lowering the view distance helps). Startup readiness is signaled by the `'spawn'` event; the local Cuberite is expected to be in the 1–5 second range (needs measurement, mainly affected by the connection throttle). Source: [Node process docs](https://nodejs.org/api/process.html#signal-events).
 
-### 3.5 Cuberite 兼容性：无已知 bug，但官方从未测过 ⚠️
+### 3.5 Cuberite Compatibility: No Known Bugs, But Never Officially Tested ⚠️
 
-mineflayer 仓库搜 "Cuberite" 仅 1 条命中——[PR #463](https://github.com/PrismarineJS/mineflayer/pull/463)（2016 年，mineflayer 1.x 时代旧报告）；[node-minecraft-protocol#348](https://github.com/PrismarineJS/node-minecraft-protocol/issues/348) 把 Cuberite 列入"对第三方服务端做自动化测试"清单且**至今未打勾**。即：无已知 bug，也无保证。Cuberite 对 1.8.x–1.12.2 的协议实现较完整，风险可控，但**必须先冒烟实测**（见 §5 Phase 0）。
+Searching the mineflayer repo for "Cuberite" yields only 1 hit — [PR #463](https://github.com/PrismarineJS/mineflayer/pull/463) (2016, an old report from the mineflayer 1.x era); [node-minecraft-protocol#348](https://github.com/PrismarineJS/node-minecraft-protocol/issues/348) lists Cuberite on a "automated testing against third-party servers" checklist that **is still unchecked to this day**. In other words: no known bugs, but also no guarantees. Cuberite's protocol implementation for 1.8.x–1.12.2 is fairly complete, so the risk is controllable, but **a smoke test must come first** (see §5 Phase 0).
 
-### 3.6 定位对比 ✅
+### 3.6 Positioning Comparison ✅
 
-mineflayer 自述 "Create Minecraft bots with a powerful, stable, and high level JavaScript API"——事件驱动的**库**（配套 pathfinder/statemachine/prismarine-viewer 生态，MCP 包装全部基于它即是佐证）；MCC 自述 "Lightweight console for Minecraft chat and automated scripts"——现成**控制台应用**（自动化走 C# ChatBot 插件/自带脚本语法）。对本场景（无头 bot + AI 代理 + 进程级可控 + 需暴露 MCP 接口），库形态明显更贴合；MCC 的痛点恰恰源于现成应用的黑盒性。
+mineflayer describes itself as "Create Minecraft bots with a powerful, stable, and high level JavaScript API" — an event-driven **library** (with a pathfinder/statemachine/prismarine-viewer ecosystem; the fact that all MCP wrappers are based on it is the evidence); MCC describes itself as "Lightweight console for Minecraft chat and automated scripts" — a ready-made **console application** (automation goes through C# ChatBot plugins / its own scripting syntax). For this scenario (headless bot + AI agent + process-level controllability + the need to expose an MCP interface), the library form is clearly a better fit; MCC's pain points stem precisely from the black-box nature of a ready-made application.
 
-## 4. 架构分层决策：集成放在哪一层
+## 4. Architecture Layering Decision: Which Layer the Integration Goes Into
 
-前文已确认现状是三段式管线。**推荐替代后保持同一分层**，替换只发生在"bot 本体"层：
+It was confirmed earlier that the current state is a three-segment pipeline. **The recommendation is to keep the same layering after the replacement**; the replacement only happens at the "bot itself" layer:
 
-| 层 | 归属 | 替代后变化 |
+| Layer | Owner | Change After Replacement |
 |---|---|---|
-| bot 本体 + MCP 端点 | **本仓库**（新增 `bot/` Node 程序） | 取代 MCC 本体：mineflayer bot 自带 MCP HTTP 端点 |
-| 进程生命周期 | **MCPServer 插件**（保留） | 启动命令从 `'"MinecraftConsoleClient" tmpIni'` 改为 `node bot/index.js …`；临时 ini 生成改为 bot 配置文件；信号梯可简化 |
-| 会话桥 | **preset**（不动） | `mcp-mcc.mjs` 只认标准 MCP 端点——bot 保持 33333 端口则**零改动**，否则改一行 URL |
+| bot itself + MCP endpoint | **This repo** (new `bot/` Node program) | Replaces the MCC binary: the mineflayer bot carries its own MCP HTTP endpoint |
+| Process lifecycle | **MCPServer plugin** (kept) | The start command changes from `'"MinecraftConsoleClient" tmpIni'` to `node bot/index.js …`; temp ini generation changes to a bot config file; the signal ladder can be simplified |
+| Session bridge | **preset** (untouched) | `mcp-mcc.mjs` only recognizes standard MCP endpoints — if the bot keeps port 33333 there are **zero changes**, otherwise change one URL line |
 
-**决策依据**：
+**Rationale**:
 
-- **bot 代码必须在本仓库**：(a) bot 进程是跟着服务器走的全局资源，生命周期必须由服务器侧管理——换会话/换 preset 挂载时 bot 不能无人管，现状 `mcc_start` 走插件 MCP 工具正是这个道理；(b) `~/.dsh/` 不在仓库版本控制内，bot 逻辑是项目功能必须版本化；(c) 改 preset 影响所有挂载该 preset 的会话。
-- **生命周期管理留在插件层**：bot 与 Cuberite 同生命周期（插件 `OnDisable` 停 bot、autostart 跟服务器启动）是插件层的自然职责；`mcc.lua` 已有成熟的 pid 跟踪、fd 关闭 wrapper（防孤儿进程占端口）——直接复用，仅信号梯因 Node 默认行为可大幅简化。
-- **preset 桥不动**：`mcp-mcc.mjs` 的自愈逻辑（-32001 自动 re-initialize）可保留作保险；若 mineflayer 会话干净（无换身份重生），该路径基本不触发。
+- **The bot code must live in this repo**: (a) the bot process is a global resource that follows the server, so its lifecycle must be managed on the server side — when switching sessions/preset mounts, the bot must not be left unattended; that is exactly why the current `mcc_start` goes through the plugin's MCP tools; (b) `~/.dsh/` is not under the repository's version control, and bot logic is a project feature that must be versioned; (c) changing the preset affects all sessions that mount that preset.
+- **Lifecycle management stays in the plugin layer**: the bot sharing Cuberite's lifecycle (the plugin's `OnDisable` stops the bot; autostart follows the server startup) is a natural responsibility of the plugin layer; `mcc.lua` already has mature pid tracking and an fd-closing wrapper (preventing orphan processes from holding the port) — reuse them directly; only the signal ladder can be greatly simplified thanks to Node's default behavior.
+- **The preset bridge stays untouched**: `mcp-mcc.mjs`'s self-healing logic (automatic re-initialize on -32001) can be kept as insurance; if the mineflayer session is clean (no identity-change respawn), this path basically never triggers.
 
-## 5. 迁移方案草案
+## 5. Draft Migration Plan
 
-- **Phase 0 — 冒烟验证（先行，~100 行）**：独立脚本连 `127.0.0.1:25568`，验证 1.8.9 / 1.12.2 的：离线登录（`auth:'offline'`）、`spawn` 就绪、聊天往返（chat + 监听）、`setControlState` 移动 + 位置回报、`activateBlock` 右键、受伤 → `'death'` → 自动重生（重点验证**不触发坠虚空**）、SIGTERM 默认行为。任一步失败即止损，MCC 继续服役。
-- **Phase 1 — bot 程序 + MCP 端点（1–2 天）**：`bot/index.js`（mineflayer 连接与生命周期）+ `bot/mcp.js`（HTTP JSON-RPC，约 15–20 个工具：chat/command/move/look/interact/inventory/entities/health/respawn/rebuild…）。工具命名与语义对齐 MCC 端点，`mcp__mcc__*` 下游工具面无感切换。端口沿用 33333。附带 `rebuild` API（关旧 bot → 新实例，替代"换身份重启整进程"）。
-- **Phase 2 — 插件侧改造**：`mcc.lua` → `bot.lua`（启动命令、临时配置改写、信号梯简化为 SIGTERM + 兜底 SIGKILL）；`config.lua` `[MCC]` 段 → `[Bot]` 段（新增 `Engine = mcc | mineflayer` 开关，默认保留 mcc 直到冒烟通过）；`tools.lua`/`Info.lua` 描述更新；`void_guard.lua` 保留观察（若 mineflayer 不触发坠虚空则默认关闭）。
-- **Phase 3 — 收尾**：preset 桥确认零改动（或改一行端口）；文档更新；`config.ini` 切 `Engine=mineflayer` 观察；MCC 保留作回退开关。
+- **Phase 0 — smoke validation (first; ~100 lines)**: a standalone script connects to `127.0.0.1:25568` and validates, for 1.8.9 / 1.12.2: offline login (`auth:'offline'`), `spawn` readiness, chat round-trip (chat + listening), `setControlState` movement + position reporting, `activateBlock` right-click, taking damage → `'death'` → auto-respawn (key validation: **does not trigger void fall**), and the default SIGTERM behavior. Stop the loss at any failing step; MCC keeps serving.
+- **Phase 1 — bot program + MCP endpoint (1–2 days)**: `bot/index.js` (mineflayer connection and lifecycle) + `bot/mcp.js` (HTTP JSON-RPC, about 15–20 tools: chat/command/move/look/interact/inventory/entities/health/respawn/rebuild…). Tool naming and semantics align with the MCC endpoint, so the downstream `mcp__mcc__*` tool surface switches over seamlessly. Port stays 33333. Also includes a `rebuild` API (close the old bot → new instance, replacing "restarting the whole process with a new identity").
+- **Phase 2 — plugin-side changes**: `mcc.lua` → `bot.lua` (start command, temporary config rewrite, signal ladder simplified to SIGTERM + fallback SIGKILL); `config.lua`'s `[MCC]` section → `[Bot]` section (add the `Engine = mcc | mineflayer` switch, keeping mcc as the default until the smoke test passes); `tools.lua`/`Info.lua` description updates; `void_guard.lua` kept for observation (default off if mineflayer does not trigger void fall).
+- **Phase 3 — wrap-up**: confirm zero changes to the preset bridge (or change one port line); documentation updates; switch `config.ini` to `Engine=mineflayer` and observe; MCC kept as a fallback switch.
 
-## 6. 风险与缓解
+## 6. Risks and Mitigations
 
-| 风险 | 等级 | 缓解 |
+| Risk | Level | Mitigation |
 |---|---|---|
-| Cuberite 从未被 mineflayer 官方测试（nmp#348 未打勾） | 中 | Phase 0 冒烟先行；任一步失败即止损，MCC 无损回退（`Engine` 开关） |
-| issue #3882 受伤后冻结 | 低 | 仅 1.21.x 报告，本场景 1.8–1.12.2；Phase 0 专项验证死亡重生路径；`void_guard.lua` 兜底 |
-| mineflayer 4.38.0 要求 Node ≥ 22 | 低 | 本机 v22.22.3 已满足；文档记录前置条件 |
-| 部署依赖 node_modules | 低 | `bot/` 自带 `package.json` + 提交或安装说明；插件启动命令做依赖存在性检查 |
-| MCP 会话失效（重启 bot 时） | 低 | 端口不变 + preset 自愈桥兜底；bot 重启时保持端点可用 |
-| 临时收益：`mcp-mcc.mjs` 自愈逻辑闲置 | — | 保留作保险，无维护成本 |
+| Cuberite has never been tested by mineflayer officially (nmp#348 unchecked) | Medium | Phase 0 smoke test first; stop the loss at any failing step, lossless MCC fallback (`Engine` switch) |
+| Issue #3882 freeze after taking damage | Low | Only reported on 1.21.x; this scenario is 1.8–1.12.2; Phase 0 specifically validates the death/respawn path; `void_guard.lua` as safety net |
+| mineflayer 4.38.0 requires Node ≥ 22 | Low | The local v22.22.3 already satisfies it; document the prerequisite |
+| Deployment depends on node_modules | Low | `bot/` carries its own `package.json` + commit or install instructions; the plugin start command does a dependency-existence check |
+| MCP session invalidation (when restarting the bot) | Low | Port unchanged + the preset self-healing bridge as safety net; keep the endpoint available while the bot restarts |
+| Incidental benefit: `mcp-mcc.mjs`'s self-healing logic goes idle | — | Kept as insurance, no maintenance cost |
 
-## 7. 结论
+## 7. Conclusion
 
-1. **协议层无障碍**：mineflayer 原生覆盖 1.8–1.12.2 与离线登录，能力清单完整覆盖本场景全部需求，且均为一等 API。
-2. **痛点全数命中**：Node 默认信号行为、干净的死亡/重生状态机、库形态的进程内可控性，直接消除 MCC 的信号梯、坠虚空换身份重启、会话自愈、配置臃肿四大 workaround。
-3. **成本可控**：自写 MCP 层约 1–2 天；插件/preset 改动面小（保持三层分层，preset 零改动）。
-4. **风险有界**：唯一实质未知是 Cuberite 兼容性（官方未测），冒烟脚本先行 + `Engine` 开关回退，失败成本趋近于零。
+1. **No obstacles at the protocol layer**: mineflayer natively covers 1.8–1.12.2 and offline login, the capability list fully covers all requirements of this scenario, and all of them are first-class APIs.
+2. **Every pain point is addressed**: Node's default signal behavior, a clean death/respawn state machine, and in-process controllability in library form directly eliminate MCC's four workarounds: the signal ladder, the void-fall identity-change restart, session self-healing, and bloated configuration.
+3. **Cost is controllable**: writing the MCP layer takes about 1–2 days; the plugin/preset change surface is small (the three-layer layering is kept; zero preset changes).
+4. **Risk is bounded**: the only substantive unknown is Cuberite compatibility (not officially tested); the smoke script first + the `Engine` switch fallback make the failure cost nearly zero.
 
-**建议**：按 §5 推进，Phase 0 冒烟验证作为第一步；保留 MCC 作回退。
+**Recommendation**: proceed per §5, with Phase 0 smoke validation as the first step; keep MCC as the fallback.

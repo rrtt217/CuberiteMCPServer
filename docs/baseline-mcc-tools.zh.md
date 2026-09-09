@@ -1,22 +1,22 @@
-# MCC Tool Baseline (Migration Comparison Snapshot)
+# MCC 工具基线（迁移对照快照）
 
-> **Source**: Captured directly on 2026-09-06 from the embedded MCP endpoint `http://127.0.0.1:33333/mcp` of the running MCC (v26.2, build 507, MC 1.12.2 / protocol 340).
-> Capture script: `docs/capture-baseline.mjs` (re-runnable). This document is the deliverable of §5; the Phase 1 mineflayer bot tool names / parameters / return text are aligned against this reference.
-> **Session and response format**: MCC returns SSE frames (`event: message\ndata: {...}`) plus a tracked `mcp-session-id` — which is exactly why the preset bridge (`mcp-mcc.mjs` uses `JSON.parse`) is incompatible. The mineflayer endpoint should return **pure JSON** and be stateless.
+> **来源**：2026-09-06 从运行中的 MCC（v26.2, build 507, MC 1.12.2 / protocol 340）的嵌入式 MCP 端点 `http://127.0.0.1:33333/mcp` 直接捕获。
+> 捕获脚本：`docs/capture-baseline.mjs`（可复跑）。本文档是 §5 的交付物，Phase 1 的 mineflayer bot 工具名/参数/返回文本以此为准对齐。
+> **会话与响应格式**：MCC 返回 SSE 帧（`event: message\ndata: {...}`）+ 跟踪 `mcp-session-id`——这正是不兼容 preset 桥（`mcp-mcc.mjs` 用 `JSON.parse`）的原因。mineflayer 端点应返回**纯 JSON** 且无状态。
 
-## 1. Total Tool Count and Naming
+## 1. 工具总数与命名
 
-- Total tools: **62**, all prefixed with `mcc_`, registered as session tools `mcp__mcc__<name>`.
-- Uniform return shape: `content[0].text` is a JSON string `{"success":true,"data":{...}}` or `{"success":false,"errorCode":"..."}`.
-- Sampling baseline in §3; death baseline in §4.
+- 工具总数：**62**，全部以 `mcc_` 前缀命名，注册为会话工具 `mcp__mcc__<name>`。
+- 返回形状统一：`content[0].text` 为 JSON 字符串 `{"success":true,"data":{...}}` 或 `{"success":false,"errorCode":"..."}`。
+- 采样基线见 §3；死亡基线见 §4。
 
-## 2. Full Tool Surface (Names + inputSchema)
+## 2. 完整工具面（名称 + inputSchema）
 
-> **Note**: The tool definitions below (names, one-line English descriptions, and the `inputSchema` JSON blocks) are the canonical reference data captured verbatim from the running MCC MCP endpoint. They are reproduced **VERBATIM**; their contents are NOT translated.
+> **说明**：以下工具定义（名称、一行英文描述、`inputSchema` JSON 块）是从运行中的 MCC MCP 端点逐字捕获的权威参考数据。它们被**原样保留**，内容**不翻译**。
 
-### SessionStatus
+### SessionStatus (6 个)
 
-**`mcc_session_status`** — Get current MCC session and feature status.
+**`mcc_session_status`**
 ```json
 {
   "type": "object",
@@ -24,7 +24,7 @@
 }
 ```
 
-**`mcc_server_info`** — Get active MCC server connection info and current TPS.
+**`mcc_server_info`**
 ```json
 {
   "type": "object",
@@ -32,7 +32,7 @@
 }
 ```
 
-**`mcc_world_state`** — Get current world state, chunk loading progress, and last observed runtime time/weather values.
+**`mcc_world_state`**
 ```json
 {
   "type": "object",
@@ -40,7 +40,7 @@
 }
 ```
 
-**`mcc_chunk_status`** — Get chunk loading status for the player location or an explicit world coordinate.
+**`mcc_chunk_status`**
 ```json
 {
   "type": "object",
@@ -70,7 +70,7 @@
 }
 ```
 
-**`mcc_loaded_bots`** — List currently loaded MCC bots and scripts.
+**`mcc_loaded_bots`**
 ```json
 {
   "type": "object",
@@ -78,7 +78,7 @@
 }
 ```
 
-**`mcc_recent_events`** — Get recent high-signal MCP runtime events after a given event ID.
+**`mcc_recent_events`**
 ```json
 {
   "type": "object",
@@ -102,9 +102,9 @@
 }
 ```
 
-### ChatAndCommands
+### ChatAndCommands (6 个)
 
-**`mcc_send_chat`** — Send chat text or slash-command to the connected Minecraft server.
+**`mcc_send_chat`**
 ```json
 {
   "type": "object",
@@ -120,7 +120,7 @@
 }
 ```
 
-**`mcc_chat_history`** — Get recent chat/system lines seen by MCC.
+**`mcc_chat_history`**
 ```json
 {
   "type": "object",
@@ -137,7 +137,7 @@
 }
 ```
 
-**`mcc_run_internal_command`** — Run an internal MCC command.
+**`mcc_run_internal_command`**
 ```json
 {
   "type": "object",
@@ -153,7 +153,7 @@
 }
 ```
 
-**`mcc_internal_commands_list`** — List available MCC internal commands with usage and description.
+**`mcc_internal_commands_list`**
 ```json
 {
   "type": "object",
@@ -161,7 +161,7 @@
 }
 ```
 
-**`mcc_quit_client`** — Quit MCC client process cleanly.
+**`mcc_quit_client`**
 ```json
 {
   "type": "object",
@@ -169,7 +169,7 @@
 }
 ```
 
-**`mcc_disconnect`** — Disconnect MCC from the current server without quitting the process.
+**`mcc_disconnect`**
 ```json
 {
   "type": "object",
@@ -177,9 +177,9 @@
 }
 ```
 
-### Movement
+### Movement (12 个)
 
-**`mcc_move_to`** — Request movement/pathing to a world coordinate and verify arrival.
+**`mcc_move_to`**
 ```json
 {
   "type": "object",
@@ -222,7 +222,7 @@
 }
 ```
 
-**`mcc_move_to_player`** — Locate a tracked player entity, request movement/pathing, and verify arrival.
+**`mcc_move_to_player`**
 ```json
 {
   "type": "object",
@@ -257,7 +257,7 @@
 }
 ```
 
-**`mcc_look_at`** — Rotate player view toward world coordinates.
+**`mcc_look_at`**
 ```json
 {
   "type": "object",
@@ -280,7 +280,7 @@
 }
 ```
 
-**`mcc_look_angles`** — Rotate player view to explicit yaw and pitch angles.
+**`mcc_look_angles`**
 ```json
 {
   "type": "object",
@@ -299,7 +299,7 @@
 }
 ```
 
-**`mcc_look_direction`** — Rotate player view to a cardinal direction or straight up/down.
+**`mcc_look_direction`**
 ```json
 {
   "type": "object",
@@ -314,7 +314,7 @@
 }
 ```
 
-**`mcc_toggle_sprint`** — Explicitly send start or stop sprinting entity actions.
+**`mcc_toggle_sprint`**
 ```json
 {
   "type": "object",
@@ -329,7 +329,7 @@
 }
 ```
 
-**`mcc_toggle_sneak`** — Explicitly enable or disable sneaking.
+**`mcc_toggle_sneak`**
 ```json
 {
   "type": "object",
@@ -344,7 +344,7 @@
 }
 ```
 
-**`mcc_animation`** — Play a hand-swing animation with the selected hand.
+**`mcc_animation`**
 ```json
 {
   "type": "object",
@@ -357,7 +357,7 @@
 }
 ```
 
-**`mcc_change_hotbar_slot`** — Change active hotbar slot (1-9).
+**`mcc_change_hotbar_slot`**
 ```json
 {
   "type": "object",
@@ -372,7 +372,7 @@
 }
 ```
 
-**`mcc_raycast_block`** — Raycast from the player's current view and return the first non-air block hit.
+**`mcc_raycast_block`**
 ```json
 {
   "type": "object",
@@ -389,7 +389,7 @@
 }
 ```
 
-**`mcc_path_preview`** — Compute a path preview to a target world coordinate without moving there.
+**`mcc_path_preview`**
 ```json
 {
   "type": "object",
@@ -432,7 +432,7 @@
 }
 ```
 
-**`mcc_can_reach_position`** — Check whether MCC can currently path to a world coordinate without moving there.
+**`mcc_can_reach_position`**
 ```json
 {
   "type": "object",
@@ -471,9 +471,9 @@
 }
 ```
 
-### Inventory
+### Inventory (12 个)
 
-**`mcc_inventory_snapshot`** — Get a snapshot of one inventory.
+**`mcc_inventory_snapshot`**
 ```json
 {
   "type": "object",
@@ -487,7 +487,7 @@
 }
 ```
 
-**`mcc_inventory_search`** — Search the player inventory and optionally open containers for items matching a query.
+**`mcc_inventory_search`**
 ```json
 {
   "type": "object",
@@ -514,7 +514,7 @@
 }
 ```
 
-**`mcc_inventory_drop_item`** — Drop an exact item count from an inventory by item type.
+**`mcc_inventory_drop_item`**
 ```json
 {
   "type": "object",
@@ -545,7 +545,7 @@
 }
 ```
 
-**`mcc_inventory_window_action`** — Perform a window action on an inventory slot.
+**`mcc_inventory_window_action`**
 ```json
 {
   "type": "object",
@@ -569,7 +569,7 @@
 }
 ```
 
-**`mcc_select_item`** — Select a hotbar item by item type without rearranging inventory contents.
+**`mcc_select_item`**
 ```json
 {
   "type": "object",
@@ -588,7 +588,7 @@
 }
 ```
 
-**`mcc_items_list`** — List nearby dropped item entities with optional item type filtering.
+**`mcc_items_list`**
 ```json
 {
   "type": "object",
@@ -612,7 +612,7 @@
 }
 ```
 
-**`mcc_items_pickup`** — Move to and pick up nearby dropped items of a given item type.
+**`mcc_items_pickup`**
 ```json
 {
   "type": "object",
@@ -643,7 +643,7 @@
 }
 ```
 
-**`mcc_inventories_list`** — List currently open inventories and containers known to MCC.
+**`mcc_inventories_list`**
 ```json
 {
   "type": "object",
@@ -651,7 +651,7 @@
 }
 ```
 
-**`mcc_container_open_at`** — Open an interactable container block at world coordinates and wait for the container inventory to appear.
+**`mcc_container_open_at`**
 ```json
 {
   "type": "object",
@@ -682,7 +682,7 @@
 }
 ```
 
-**`mcc_container_close`** — Close an open non-player container. Use inventoryId=-1 to close the active container.
+**`mcc_container_close`**
 ```json
 {
   "type": "object",
@@ -700,7 +700,7 @@
 }
 ```
 
-**`mcc_container_withdraw_item`** — Move an exact item count from an open container into the player inventory and verify the transfer.
+**`mcc_container_withdraw_item`**
 ```json
 {
   "type": "object",
@@ -731,7 +731,7 @@
 }
 ```
 
-**`mcc_container_deposit_item`** — Move an exact item count from the player inventory into an open container and verify the transfer.
+**`mcc_container_deposit_item`**
 ```json
 {
   "type": "object",
@@ -762,9 +762,9 @@
 }
 ```
 
-### EntityWorld
+### EntityWorld (26 个)
 
-**`mcc_entities_query`** — Query tracked entities.
+**`mcc_entities_query`**
 ```json
 {
   "type": "object",
@@ -778,7 +778,7 @@
 }
 ```
 
-**`mcc_entities_list`** — List tracked entities with optional type and radius filtering.
+**`mcc_entities_list`**
 ```json
 {
   "type": "object",
@@ -802,7 +802,7 @@
 }
 ```
 
-**`mcc_entity_info`** — Get detailed info for one tracked entity.
+**`mcc_entity_info`**
 ```json
 {
   "type": "object",
@@ -829,7 +829,7 @@
 }
 ```
 
-**`mcc_entity_nearest`** — Return the nearest tracked entity matching the requested filters.
+**`mcc_entity_nearest`**
 ```json
 {
   "type": "object",
@@ -860,7 +860,7 @@
 }
 ```
 
-**`mcc_entity_attack`** — Attack a tracked entity explicitly.
+**`mcc_entity_attack`**
 ```json
 {
   "type": "object",
@@ -875,7 +875,7 @@
 }
 ```
 
-**`mcc_entity_interact`** — Interact with a tracked entity.
+**`mcc_entity_interact`**
 ```json
 {
   "type": "object",
@@ -898,7 +898,7 @@
 }
 ```
 
-**`mcc_entity_types_list`** — List known MCC entity type names with optional filtering.
+**`mcc_entity_types_list`**
 ```json
 {
   "type": "object",
@@ -918,7 +918,7 @@
 }
 ```
 
-**`mcc_players_list`** — List currently known online players.
+**`mcc_players_list`**
 ```json
 {
   "type": "object",
@@ -926,7 +926,7 @@
 }
 ```
 
-**`mcc_players_detailed`** — List online players with UUID, latency, gamemode, and tracked coordinates when available.
+**`mcc_players_detailed`**
 ```json
 {
   "type": "object",
@@ -943,7 +943,7 @@
 }
 ```
 
-**`mcc_player_nearby`** — Check if any player, or a specific player, is nearby.
+**`mcc_player_nearby`**
 ```json
 {
   "type": "object",
@@ -967,7 +967,7 @@
 }
 ```
 
-**`mcc_player_locate`** — Locate a tracked player entity by name and return exact coordinates when available.
+**`mcc_player_locate`**
 ```json
 {
   "type": "object",
@@ -986,7 +986,7 @@
 }
 ```
 
-**`mcc_player_state`** — Get current controlled player state.
+**`mcc_player_state`**
 ```json
 {
   "type": "object",
@@ -994,7 +994,7 @@
 }
 ```
 
-**`mcc_player_stats`** — Get current controlled player stats, orientation, and location.
+**`mcc_player_stats`**
 ```json
 {
   "type": "object",
@@ -1002,7 +1002,7 @@
 }
 ```
 
-**`mcc_respawn`** — Send the respawn packet when the controlled player is dead.
+**`mcc_respawn`**
 ```json
 {
   "type": "object",
@@ -1010,7 +1010,7 @@
 }
 ```
 
-**`mcc_world_block_at`** — Get block information at world coordinates.
+**`mcc_world_block_at`**
 ```json
 {
   "type": "object",
@@ -1033,7 +1033,7 @@
 }
 ```
 
-**`mcc_blocks_find`** — Find nearby blocks by block name/type query or block ID.
+**`mcc_blocks_find`**
 ```json
 {
   "type": "object",
@@ -1061,7 +1061,7 @@
 }
 ```
 
-**`mcc_block_scan`** — Scan nearby blocks around player location.
+**`mcc_block_scan`**
 ```json
 {
   "type": "object",
@@ -1085,7 +1085,7 @@
 }
 ```
 
-**`mcc_block_types_list`** — List known MCC block type names with optional filtering.
+**`mcc_block_types_list`**
 ```json
 {
   "type": "object",
@@ -1105,7 +1105,7 @@
 }
 ```
 
-**`mcc_materials_list`** — List known MCC material names with optional filtering.
+**`mcc_materials_list`**
 ```json
 {
   "type": "object",
@@ -1125,7 +1125,7 @@
 }
 ```
 
-**`mcc_signs_find`** — Find nearby signs whose text exactly matches or contains the requested text.
+**`mcc_signs_find`**
 ```json
 {
   "type": "object",
@@ -1156,7 +1156,7 @@
 }
 ```
 
-**`mcc_dig_block`** — Dig a block at target location.
+**`mcc_dig_block`**
 ```json
 {
   "type": "object",
@@ -1183,7 +1183,7 @@
 }
 ```
 
-**`mcc_use_item_on_block`** — Use currently held item on a target block location.
+**`mcc_use_item_on_block`**
 ```json
 {
   "type": "object",
@@ -1206,7 +1206,7 @@
 }
 ```
 
-**`mcc_use_item_on_hand`** — Use the currently held item.
+**`mcc_use_item_on_hand`**
 ```json
 {
   "type": "object",
@@ -1214,7 +1214,7 @@
 }
 ```
 
-**`mcc_place_block`** — Place the currently held block/item at a target block location.
+**`mcc_place_block`**
 ```json
 {
   "type": "object",
@@ -1249,7 +1249,7 @@
 }
 ```
 
-**`mcc_status_effects`** — Get active player status effects only.
+**`mcc_status_effects`**
 ```json
 {
   "type": "object",
@@ -1257,7 +1257,7 @@
 }
 ```
 
-**`mcc_agent_guidance`** — Get the canonical MCC MCP Operator Prompt bundle for external agents using this MCP server.
+**`mcc_agent_guidance`**
 ```json
 {
   "type": "object",
@@ -1265,9 +1265,9 @@
 }
 ```
 
-## 3. Sample Returns (Real Output Captured at Capture Time)
+## 3. 样本返回（捕获时的真实输出）
 
-> **Note**: The captured outputs below are real, verbatim responses returned by the MCC MCP endpoint at capture time — canonical reference data. They are NOT translated.
+> **说明**：以下捕获输出是捕获时 MCC MCP 端点返回的真实原始响应——权威参考数据，**不翻译**。
 
 ```
 
@@ -1482,21 +1482,32 @@
 }
 ```
 
-## 4. Death Baseline (Control Group)
+## 4. 死亡基线（对照组）
 
-> Supplemented by death-reproduction measurements (see below).
+> 由死亡重现实测补充（见下文）。
 
-## 4.1 Death Reproduction Measurements (2026-09-06)
+## 4.1 死亡重现实测（2026-09-06）
 
-**Method**: The bot (`TestBot2_3090`, survival logic appearing as gm=-1) at (100,74,1) was first wrapped in solid blocks (no suffocation triggered), then lava was placed under its feet at (100,73,1).
+**方法**：bot（TestBot2_3090，survival 逻辑在外观上 gm=-1）在 (100,74,1) 先被实心方块包裹（未触发窒息），随后脚下放置熔岩 (100,73,1)。
 
-**Observation sequence**:
+**观测序列**：
 
-> Note: this observation table is verbatim captured data (not translated).
+> 说明：本观测表为逐字捕获的数据（未翻译）。
 
+| 时间 | health | y | 现象 |
+|---|---|---|---|
+| 0s | 20 | 74.0 | 站立，熔岩开始伤害 |
+| +2.5s | 20 | 48.9 | 坠落（熔岩柱中） |
+| +5s | 20 | 74.0 | **重生回 y=74**（死亡→自动重生成功） |
+| +7.5s | 20 | 74.0 | 站立 |
+| +10s | 20 | 72.8 | 再次坠落（熔岩柱仍在） |
+| +15s | 18 | 61.9 | 熔岩伤害中 |
+| +17.5s | 17 | 53.7 | 持续坠落 |
+| +20s | 17 | 40 | 坠落至较低处 |
+| 清除熔岩后 | 20 | 70.6 | 存活，MCP 端点仍响应 |
 
-**Conclusions (control group)**:
-1. **English** — MCC death auto-respawn works **normally**: after death the bot respawns at spawn y≈74 with no void-fall stuck state (this test case).
-2. **English** — If the death point is still dangerous (lava etc.), it enters a "respawn → die again" loop; MCC state keeps losing health throughout the loop but is not corrupted immediately.
-3. **English** — Consistent with known background: MCC occasionally hits "client state corruption → falls into the void and cannot respawn → disconnect + MCP stops" (this session started in that state and required an mcc_stop/mcc_start force rebuild).
-4. **English** — **Comparison yardstick**: the mineflayer Phase 0 smoke test will use the same method (lava kill) to verify a normal death → respawn position and no void-fall.
+**结论（对照组）**：
+1. **中文** — MCC 的死亡自动重生**正常**：死亡后重生回出生点 y≈74，未触发坠虚空卡死（本测例）。
+2. **中文** — 若死亡点仍危险（熔岩等），会进入"重生→再死"循环；MCC 状态在循环中持续掉血但不立即损坏。
+3. **中文** — 与已知背景一致：MCC 偶发"客户端状态损坏 → 坠虚空无法重生 → 断线 + MCP 停止"（本次会话开始时即处于该状态，需 mcc_stop/mcc_start force 重建）。
+4. **中文** — **对比标尺**：mineflayer Phase 0 冒烟将用同样方法（熔岩 kill）验证死亡→重生位置正常、不坠虚空。
