@@ -27,6 +27,15 @@ module.exports = function windowActions(botCtl) {
     const playerStart = (w.slots && w.slots.length) ? w.slots.length - 36 : 36
     return slot >= playerStart ? 'player' : 'container'
   }
+  // mineflayer/prismarine-windows stores the wire window type on `w.type`
+  // (e.g. 'minecraft:chest', 'minecraft:villager', 'minecraft:crafting_table',
+  // 'minecraft:inventory'); `w.windowType` was never a real field, so the old
+  // read always returned null. Keep windowType as a fallback for safety.
+  function windowTypeOf(w) {
+    if (!w) return null
+    if (w.type !== undefined && w.type !== null) return w.type
+    return w.windowType || null
+  }
 
   return {
     // Open a container/block window at world coords. closeCurrent=true closes any
@@ -38,6 +47,15 @@ module.exports = function windowActions(botCtl) {
       const block = b.blockAt(vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
       if (!block || block.type === 0) {
         return { success: false, errorCode: 'block_not_found', data: { x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) } }
+      }
+      // Server silently ignores out-of-reach right-clicks (no window opens);
+      // fail fast with a clear error instead of a 20s windowOpen timeout.
+      const pos = botCtl.pos()
+      if (pos) {
+        const dist = Math.hypot(pos.x - (block.position.x + 0.5), pos.y - (block.position.y + 0.5), pos.z - (block.position.z + 0.5))
+        if (dist > 5.0) {
+          return { success: false, errorCode: 'too_far', data: { x: Math.floor(x), y: Math.floor(y), z: Math.floor(z), block: block.name, distance: Math.round(dist * 10) / 10, max: 5.0, hint: 'move closer (mcc_move_to) then retry' } }
+        }
       }
       if (closeCurrent !== false && b.currentWindow) {
         try { b.currentWindow.close() } catch (e) { /* ignore */ }
@@ -69,7 +87,7 @@ module.exports = function windowActions(botCtl) {
         window.requiresConfirmation = false
         const slots = window.slots ? window.slots.length : 0
         return { success: true, data: { x: block.position.x, y: block.position.y, z: block.position.z,
-          block: block.name, windowId: window.id, slotCount: slots, windowType: window.windowType || null } }
+          block: block.name, windowId: window.id, slotCount: slots, windowType: windowTypeOf(window), title: window.title || null } }
       } catch (e) {
         return { success: false, errorCode: 'open_failed', data: { error: e.message, x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) } }
       }
@@ -100,7 +118,8 @@ module.exports = function windowActions(botCtl) {
         success: true,
         data: {
           windowId: w.id,
-          windowType: w.windowType || null,
+          windowType: windowTypeOf(w),
+          title: w.title || null,
           itemCount: items.length,
           items,
           heldItem: held,

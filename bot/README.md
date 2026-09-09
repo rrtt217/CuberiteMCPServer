@@ -46,10 +46,13 @@ Windows/GUI: `mcc_container_open_at`, `mcc_window_slots`, `mcc_container_deposit
 `mcc_container_withdraw_item`, `mcc_inventory_window_action`, `mcc_container_close`
 Movement: `mcc_look_at`, `mcc_look_direction`, `mcc_toggle_sprint`,
 `mcc_toggle_sneak`, `mcc_change_hotbar_slot`, `mcc_move_to`, `mcc_respawn`
+(note: `mcc_toggle_sneak` / `mcc_toggle_sprint` are NOT toggles — always pass
+`enabled: true|false` explicitly; an empty object is rejected as `invalid_args`)
 Inventory: `mcc_inventory_snapshot`, `mcc_inventory_search`, `mcc_select_item`
 EntityWorld: `mcc_entities_query`, `mcc_world_block_at`, `mcc_raycast_block`,
-`mcc_player_nearby`, `mcc_activate_block`, `mcc_entity_attack`, `mcc_dig_block`,
-`mcc_place_block`
+`mcc_player_nearby`, `mcc_activate_block`, `mcc_entity_attack`, `mcc_entity_interact`
+(right-click / use a tracked entity — e.g. opens a villager's trade window),
+`mcc_dig_block`, `mcc_place_block`
 Lifecycle: `mcc_rebuild` (new bot instance, optional new username), `mcc_quit_client`
 
 ## prismarine-chunk patch (required for 1.9+)
@@ -97,7 +100,9 @@ held item at the target; `mcc_dig_block` digs one. Two server-side constraints t
 
 `mcc_container_open_at` opens any container block (chest, furnace, crafting table, hopper,
 dispenser, ...) and subsequent tools operate on the opened window: `mcc_window_slots`
-lists its slots (container section then player section), `mcc_container_deposit_item` /
+lists its slots (container section then player section) plus the real window type
+(`windowType`, e.g. `minecraft:chest` / `minecraft:villager` / `minecraft:crafting_table`),
+`mcc_container_deposit_item` /
 `mcc_container_withdraw_item` move items, `mcc_inventory_window_action` is the low-level
 click, `mcc_container_close` closes.
 

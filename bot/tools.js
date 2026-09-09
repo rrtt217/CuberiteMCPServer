@@ -91,14 +91,20 @@ function buildRegistry(botCtl) {
       handler: (a) => move.lookDirection(a.yaw, a.pitch).then((r) => (r.success ? ok(r.data) : r)) },
 
     { name: 'mcc_toggle_sprint',
-      description: 'Start or stop sprinting.',
-      inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] },
-      handler: (a) => move.toggleSprint(a.enabled) },
+      description: 'Explicitly enable or disable sprinting. NOT a toggle: always pass enabled:true or enabled:false — omitting it is an invalid_args error, and an empty object is never treated as a toggle or as false.',
+      inputSchema: { type: 'object', properties: { enabled: { type: 'boolean', description: 'true = start sprinting, false = stop sprinting (required)' } }, required: ['enabled'] },
+      handler: (a) => {
+        if (typeof a.enabled !== 'boolean') return fail('invalid_args', { enabled: a.enabled, hint: 'enabled must be true or false (required); this tool is not a toggle' })
+        return move.toggleSprint(a.enabled)
+      } },
 
     { name: 'mcc_toggle_sneak',
-      description: 'Start or stop sneaking.',
-      inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] },
-      handler: (a) => move.toggleSneak(a.enabled) },
+      description: 'Explicitly enable or disable sneaking. NOT a toggle: always pass enabled:true or enabled:false — omitting it is an invalid_args error, and an empty object is never treated as a toggle or as false.',
+      inputSchema: { type: 'object', properties: { enabled: { type: 'boolean', description: 'true = sneak, false = stop sneaking (required)' } }, required: ['enabled'] },
+      handler: (a) => {
+        if (typeof a.enabled !== 'boolean') return fail('invalid_args', { enabled: a.enabled, hint: 'enabled must be true or false (required); this tool is not a toggle' })
+        return move.toggleSneak(a.enabled)
+      } },
 
     { name: 'mcc_change_hotbar_slot',
       description: 'Change active hotbar slot (1-9).',
@@ -187,10 +193,45 @@ function buildRegistry(botCtl) {
       inputSchema: { type: 'object', properties: { entityId: { type: 'integer' } }, required: ['entityId'] },
       handler: (a) => interact.attackEntity(a.entityId).then((r) => (r.success ? ok(r.data) : r)) },
 
+    { name: 'mcc_entity_interact',
+      description: 'Right-click / interact (use) a tracked entity through the real client: the bot faces the entity, then sends the use_entity packet. This is what opens a villager\'s trade window or right-clicks an entity; window clicks then go through mcc_inventory_window_action. Get entity ids from mcc_entities_query.',
+      inputSchema: { type: 'object', properties: { entityId: { type: 'integer', description: 'Tracked entity id (see mcc_entities_query)' } }, required: ['entityId'] },
+      handler: (a) => interact.useOnEntity(a.entityId).then((r) => (r.success ? ok(r.data) : r)) },
+
     { name: 'mcc_dig_block',
       description: 'Dig (mine) a block at world coordinates.',
       inputSchema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, z: { type: 'integer' } }, required: ['x', 'y', 'z'] },
       handler: (a) => interact.digBlock(a.x, a.y, a.z).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_use_item',
+      description: 'Right-click: use the held item. entityId -> right-click/interact that tracked entity; x,y,z -> activate that block; no target -> use the held item in hand (eat food, throw, use fishing rod, charge bow, bucket...).',
+      inputSchema: { type: 'object',
+        properties: {
+          entityId: { type: 'integer', default: null, description: 'Right-click this tracked entity instead (see mcc_entities_query)' },
+          x: { type: 'integer', default: null }, y: { type: 'integer', default: null }, z: { type: 'integer', default: null },
+        }, required: [] },
+      handler: (a) => interact.useItem(a.entityId ?? null, a.x ?? null, a.y ?? null, a.z ?? null).then((r) => (r.success ? ok(r.data) : r)) },
+
+    { name: 'mcc_hold_use',
+      description: "Long-press right button. No target (item mode): action start = press right-click (activateItem; begin eating / charging bow), stop = release (deactivateItem; cancel eat / fire bow), toggle = flip current holding state; durationMs auto-releases a start. With entityId or x,y,z (targeted mode, repeats by default): right-click the target every ~250ms for durationMs — vanilla hold-right (feeding entities, spamming a block interaction).",
+      inputSchema: { type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['start', 'stop', 'toggle', 'repeat'], default: 'repeat' },
+          entityId: { type: 'integer', default: null },
+          x: { type: 'integer', default: null }, y: { type: 'integer', default: null }, z: { type: 'integer', default: null },
+          durationMs: { type: 'integer', default: 3000, minimum: 0, maximum: 30000 },
+        }, required: [] },
+      handler: (a) => interact.holdUse(a.action || 'repeat', a.entityId ?? null, a.x ?? null, a.y ?? null, a.z ?? null, int(a.durationMs, 3000)).then((r) => (r.success ? ok(r.data) : r)) },
+    { name: 'mcc_hold_left',
+      description: "Long-press left button. entityId: repeatedly attack the entity until it dies, despawns or durationMs elapses (default 5000). x,y,z only: dig that single block. With dx,dy,dz + count (forward mode): continuously mine a row of count cells in that direction, stepping into each (strip-mine / staircase), bounded by durationMs.",
+      inputSchema: { type: 'object',
+        properties: {
+          entityId: { type: 'integer', default: null },
+          x: { type: 'integer', default: null }, y: { type: 'integer', default: null }, z: { type: 'integer', default: null },
+          dx: { type: 'integer', default: 0 }, dy: { type: 'integer', default: 0 }, dz: { type: 'integer', default: 0 },
+          count: { type: 'integer', default: 1 }, durationMs: { type: 'integer', default: 5000, maximum: 30000 },
+        }, required: [] },
+      handler: (a) => interact.holdLeft(a.entityId ?? null, a.x ?? null, a.y ?? null, a.z ?? null, int(a.dx, 0), int(a.dy, 0), int(a.dz, 0), int(a.count, 1), int(a.durationMs, 5000)).then((r) => (r.success ? ok(r.data) : r)) },
 
     { name: 'mcc_place_block',
       description: 'Place the currently held block/item at a target block location. The bot must be holding a placeable item (see mcc_select_item); face = auto | down | up | north | south | west | east (auto prefers placing on top of the block below the target).',

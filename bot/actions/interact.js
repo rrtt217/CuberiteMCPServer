@@ -16,6 +16,17 @@ module.exports = function interactActions(botCtl) {
       const block = b.blockAt(vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
       if (!block) return { success: false, errorCode: 'block_not_found', data: { x, y, z } }
       if (block.type === 0) return { success: false, errorCode: 'invalid_state', data: { reason: 'air block' } }
+      // Server reach check (Cuberite: ~5.26 from eye; use a conservative 5.0
+      // from the bot's feet). Out-of-reach clicks are silently ignored by the
+      // server (no window opens, nothing moves), yet the old code returned
+      // success — a classic "inventory ops silently no-op / look desynced".
+      const pos = botCtl.pos()
+      if (pos) {
+        const dist = Math.hypot(pos.x - (block.position.x + 0.5), pos.y - (block.position.y + 0.5), pos.z - (block.position.z + 0.5))
+        if (dist > 5.0) {
+          return { success: false, errorCode: 'too_far', data: { x, y, z, block: block.name, distance: Math.round(dist * 10) / 10, max: 5.0, hint: 'move closer (mcc_move_to) then retry' } }
+        }
+      }
       try {
         await b.lookAt(block.position.offset(0.5, 0.8, 0.5))
         await sleep(80)
@@ -36,8 +47,19 @@ module.exports = function interactActions(botCtl) {
       if (!b) return { success: false, errorCode: 'bot_offline' }
       const e = b.entities[entityId]
       if (!e) return { success: false, errorCode: 'entity_not_found', data: { entityId } }
-      try { await b.useOn(e) } catch (err) { return { success: false, errorCode: 'use_failed', data: { error: err.message } } }
-      return { success: true, data: { entityId, type: e.name } }
+      try {
+        // Face the entity first: the server picks the "use" target from the
+        // player's view direction when processing the use_entity packet
+        // (Cuberite HOOK_PLAYER_RIGHT_CLICKING_ENTITY), so a stale facing makes
+        // right-clicks (e.g. opening a villager's trade window) silently no-op.
+        await b.lookAt(e.position.offset(0, 1, 0))
+        await sleep(80)
+        await b.useOn(e)
+      } catch (err) { return { success: false, errorCode: 'use_failed', data: { error: err.message } } }
+      const p = botCtl.pos()
+      return { success: true, data: { entityId, type: e.name,
+        entityPos: { x: e.position.x, y: e.position.y, z: e.position.z },
+        distance: p ? Math.round(Math.hypot(p.x - e.position.x, p.y - e.position.y, p.z - e.position.z) * 10) / 10 : null } }
     },
     async digBlock(x, y, z) {
       const b = assertOnline()
@@ -139,6 +161,116 @@ module.exports = function interactActions(botCtl) {
       }
       const placed = b.blockAt(vec3(tx, ty, tz))
       return { success: true, data: { x: tx, y: ty, z: tz, block: placed ? placed.name : 'placed', reference: refPos, face: fvec.join(',') } }
+    },
+    // Right-click: use the held item in hand (air), interact with a block, or
+    // use (right-click) a tracked entity.
+    async useItem(entityId, x, y, z) {
+      const b = assertOnline()
+      if (!b) return { success: false, errorCode: 'bot_offline' }
+      const vec3 = require('vec3')
+      try {
+        if (entityId != null) {
+          const e = b.entities[Number(entityId)]
+          if (!e) return { success: false, errorCode: 'entity_not_found', data: { entityId } }
+          await b.useOn(e)
+          return { success: true, data: { action: 'useOnEntity', entityId: Number(entityId), type: e.name || e.displayName || null } }
+        }
+        if (x != null && y != null && z != null) {
+          const block = b.blockAt(vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
+          if (!block || block.type === 0) return { success: false, errorCode: 'block_not_found', data: { x, y, z } }
+          await b.lookAt(block.position.offset(0.5, 0.8, 0.5))
+          await sleep(80)
+          await b.activateBlock(block)
+          return { success: true, data: { action: 'activateBlock', x: block.position.x, y: block.position.y, z: block.position.z, block: block.name } }
+        }
+        await b.activateItem()
+        return { success: true, data: { action: 'activateItem', held: b.heldItem ? { name: b.heldItem.name, type: b.heldItem.type, count: b.heldItem.count } : null } }
+      } catch (e) {
+        return { success: false, errorCode: 'use_failed', data: { error: e.message } }
+      }
+    },
+    // Long-press right button. In 1.12 "use" is a stateful action started by
+    // use_item and stopped by the release-use packet (Player Digging status 5).
+    //  - No target (item mode): action start = press (activateItem), stop =
+    //    release (deactivateItem), toggle = flip current holding state.
+    //    durationMs auto-releases a start (e.g. charge bow then fire).
+    //  - entityId / x,y,z (targeted mode): repeated right-click of that target
+    //    every ~250ms for durationMs — vanilla hold-right on entities/blocks.
+    async holdUse(action, entityId, x, y, z, durationMs) {
+      const b = assertOnline()
+      if (!b) return { success: false, errorCode: 'bot_offline' }
+      const act = String(action || 'repeat').toLowerCase()
+      const dur = Math.max(0, Math.min(Number(durationMs) || 3000, 30000))
+      if (entityId != null || (x != null && y != null && z != null)) {
+        if (act === 'start' || act === 'stop' || act === 'toggle') {
+          return { success: false, errorCode: 'invalid_args', data: { hint: 'start/stop/toggle apply to the held item (no entity/block target); pass repeat (or leave action unset) for a targeted hold' } }
+        }
+        const start = Date.now()
+        let count = 0
+        let last = null
+        while (Date.now() - start < dur) {
+          last = await this.useItem(entityId, x, y, z)
+          count++
+          if (!last || !last.success) break
+          await sleep(250)
+        }
+        return { success: true, data: { action: 'holdUseRepeat', target: entityId != null ? ('entity ' + entityId) : ('block ' + x + ',' + y + ',' + z), uses: count, last } }
+      }
+      const press = act === 'start' || (act === 'toggle' && !b.usingHeldItem)
+      try {
+        if (act === 'stop') {
+          await b.deactivateItem()
+        } else if (press) {
+          await b.activateItem()
+        } else {
+          return { success: false, errorCode: 'invalid_args', data: { action: act, hint: "use 'start', 'stop', or 'toggle'" } }
+        }
+      } catch (e) {
+        return { success: false, errorCode: 'use_failed', data: { error: e.message } }
+      }
+      if (press && dur > 0) {
+        setTimeout(() => { try { b.deactivateItem() } catch (e) { /* ignore */ } }, dur)
+      }
+      return { success: true, data: { action: press ? 'press' : 'release', usingHeldItem: !!b.usingHeldItem, autoReleaseMs: press ? dur : null, held: b.heldItem ? { name: b.heldItem.name, type: b.heldItem.type, count: b.heldItem.count } : null } }
+    },
+    // Long-press left button: attack an entity until it is gone, dig a single
+    // block, or (with dx/dy/dz + count) continuously mine a row of cells,
+    // stepping into each one (strip-mine / staircase).
+    async holdLeft(entityId, x, y, z, dx, dy, dz, count, durationMs) {
+      const b = assertOnline()
+      if (!b) return { success: false, errorCode: 'bot_offline' }
+      const dur = Math.max(0, Math.min(Number(durationMs) || 5000, 30000))
+      if (entityId != null) {
+        const id = Number(entityId)
+        if (!b.entities[id]) return { success: false, errorCode: 'entity_not_found', data: { entityId } }
+        const start = Date.now()
+        let hits = 0
+        while (Date.now() - start < dur && b.entities[id] && b.entities[id].health > 0) {
+          try { b.attack(b.entities[id]) } catch (e) { break }
+          hits++
+          await sleep(450)
+        }
+        return { success: true, data: { action: 'holdAttack', entityId: id, hits, ms: Date.now() - start } }
+      }
+      if (x == null || y == null || z == null) {
+        return { success: false, errorCode: 'invalid_args', data: { hint: 'pass entityId OR x,y,z (optionally dx,dy,dz + count for continuous mining)' } }
+      }
+      const forward = (dx || dy || dz) && count > 0
+      const steps = forward ? Math.max(1, Number(count)) : 1
+      const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
+      const digs = []
+      const start = Date.now()
+      for (let i = 0; i < steps && Date.now() - start < dur; i++) {
+        const cell = forward ? { x: cx + i * dx, y: cy + i * dy, z: cz + i * dz } : { x: cx, y: cy, z: cz }
+        const r = await this.digBlock(cell.x, cell.y, cell.z)
+        digs.push({ x: cell.x, y: cell.y, z: cell.z, dug: !!(r && r.success) })
+        if (forward && r && r.success) {
+          const { goals } = require('mineflayer-pathfinder')
+          try { b.pathfinder.goto(new goals.GoalNear(cell.x + 0.5, cell.y, cell.z + 0.5, 0.3)) } catch (e) { /* keep going */ }
+          await sleep(300)
+        }
+      }
+      return { success: true, data: { action: 'holdDig', mode: forward ? 'forward' : 'block', cells: digs, ms: Date.now() - start } }
     },
   }
 }
