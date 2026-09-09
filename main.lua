@@ -181,9 +181,14 @@ function Initialize(a_Plugin)
 	dofile(g_PluginFolder .. "/bot.lua")
 	dofile(g_PluginFolder .. "/tools.lua")
 	dofile(g_PluginFolder .. "/void_guard.lua")
+	dofile(g_PluginFolder .. "/death_sync.lua")
 
 	-- Void-fall loop guard (config.ini [VoidGuard], disabled by default).
 	InitVoidGuard()
+
+	-- Death/respawn health re-sync (Cuberite never sends update_health after a
+	-- same-world death respawn; without this clients stay stuck at health=0).
+	InitDeathSync()
 
 	-- Register console commands via the shared InfoReg helper.
 	dofile(cPluginManager:GetPluginsPath() .. "/InfoReg.lua")

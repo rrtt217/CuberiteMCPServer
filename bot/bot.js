@@ -96,8 +96,13 @@ class BotHandle {
       this.log('END reason=' + reason)
       if (this.state !== 'stopped' && !this.suppressReconnect) this._scheduleReconnect('end')
     })
-    bot.on('death', () => this.log('DEATH pos=' + this.posStr()))
-    bot.on('health', () => this.log('health=' + bot.health + ' food=' + bot.food))
+    // Cuberite never re-sends update_health after a same-world death respawn
+    // (see MCPServer/death_sync.lua). Log these lifecycle events with ms
+    // timestamps — they make client/server death-state desyncs visible.
+    bot.on('death', () => this.log(Date.now() + ' DEATH pos=' + this.posStr() + ' isAlive=' + bot.isAlive))
+    bot.on('health', () => { if (bot.health <= 0) this.log(Date.now() + ' health<=0 health=' + bot.health + ' isAlive=' + bot.isAlive) })
+    bot.on('respawn', () => this.log(Date.now() + ' RESPAWN_PKT pos=' + this.posStr() + ' isAlive=' + bot.isAlive))
+    bot.on('spawn', () => this.log(Date.now() + ' SPAWN_EVT pos=' + this.posStr() + ' isAlive=' + bot.isAlive))
   }
 
   _scheduleReconnect(why) {
